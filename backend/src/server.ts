@@ -49,6 +49,29 @@ fastify.get('/health', async () => {
     };
 });
 
+// One-time setup endpoint to create test user
+fastify.post('/setup-test-user', async (request, reply) => {
+    try {
+        const { pool } = await import('./config/database.js');
+        await pool.query(`
+            INSERT INTO users (id, name, email, password_hash, role)
+            VALUES (
+                '123e4567-e89b-12d3-a456-426614174000',
+                'Test User',
+                'test@placetalk.app',
+                '$2b$10$abcdefghijklmnopqrstuvwxyz1234567890',
+                'explorer'
+            )
+            ON CONFLICT (email) DO UPDATE SET
+                id = EXCLUDED.id,
+                name = EXCLUDED.name;
+        `);
+        return { success: true, message: 'Test user created' };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+});
+
 // Register ALL routes
 await fastify.register(authRoutes, { prefix: '/auth' });
 await fastify.register(discoveryRoutes, { prefix: '/discovery' });
