@@ -1,24 +1,24 @@
 import 'dotenv/config';
 import { Pool } from 'pg';
 
-console.log('DB Config:', {
-    host: process.env.DATABASE_HOST || 'localhost',
-    port: parseInt(process.env.DATABASE_PORT || '5432'),
-    database: process.env.DATABASE_NAME || 'placetalk',
-    user: process.env.DATABASE_USER || 'placetalk_user',
-    password: process.env.DATABASE_PASSWORD ? '***' : 'UNDEFINED',
-});
+// Database connection configuration
+// Priority: DATABASE_URL (Render) > Individual env vars (Docker)
+const connectionString = process.env.DATABASE_URL;
 
-export const pool = new Pool({
-    host: process.env.DATABASE_HOST || 'localhost',
-    port: parseInt(process.env.DATABASE_PORT || '5432'),
-    database: process.env.DATABASE_NAME || 'placetalk',
-    user: process.env.DATABASE_USER || 'placetalk_user',
-    password: process.env.DATABASE_PASSWORD?.trim(),
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-});
+console.log('DB Connection:', connectionString ? 'Using DATABASE_URL' : 'Using individual env vars');
+
+export const pool = connectionString
+    ? new Pool({ connectionString })
+    : new Pool({
+        host: process.env.DATABASE_HOST || 'localhost',
+        port: parseInt(process.env.DATABASE_PORT || '5432'),
+        database: process.env.DATABASE_NAME || 'placetalk',
+        user: process.env.DATABASE_USER || 'placetalk_user',
+        password: process.env.DATABASE_PASSWORD?.trim(),
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000,
+    });
 
 pool.on('error', (err) => {
     console.error('Unexpected error on idle PostgreSQL client', err);
