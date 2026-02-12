@@ -64,8 +64,8 @@ const start = async () => {
             process.exit(1);
         }
 
-        // Connect to Redis
-        await connectRedis();
+        // Connect to Redis (disabled - not available on Render free tier)
+        // await connectRedis();
 
         // Start lifecycle worker (checks every 60 seconds)
         startLifecycleWorker();
