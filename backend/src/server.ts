@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import { testConnection } from './config/database.js';
+import { runMigrations } from './config/migrate.js';
 import { connectRedis } from './config/redis.js';
 import { authRoutes } from './modules/auth/auth.controller.js';
 import { discoveryRoutes } from './modules/discovery/discovery.controller.js';
@@ -63,6 +64,9 @@ const start = async () => {
             console.error('Failed to connect to PostgreSQL. Exiting...');
             process.exit(1);
         }
+
+        // Run migrations (create tables if they don't exist)
+        await runMigrations();
 
         // Connect to Redis (disabled - not available on Render free tier)
         // await connectRedis();
