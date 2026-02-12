@@ -1,36 +1,55 @@
 import 'dotenv/config';
-import { createClient } from 'redis';
+import { createClient, RedisClientType } from 'redis';
 
+// Redis is OPTIONAL - only create client if explicitly configured
+let redisClient: RedisClientType | null = null;
 let isRedisAvailable = false;
 
-export const redisClient = createClient({
-    socket: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-    },
-});
-
-redisClient.on('error', (err) => console.error('❌ Redis Client Error:', err));
-redisClient.on('connect', () => {
-    console.log('✅ Redis Connected');
-    isRedisAvailable = true;
-});
-
 export async function connectRedis() {
+    // Only attempt Redis connection if REDIS_URL is set (production)
+    const redisUrl = process.env.REDIS_URL;
+
+    if (!redisUrl) {
+        console.log('⚠️  Redis not configured - running without cache');
+        return;
+    }
+
     try {
+        redisClient = createClient({
+            url: redisUrl,
+            socket: {
+                reconnectStrategy: false // Don't retry if connection fails
+            }
+        });
+
+        redisClient.on('error', (err) => {
+            console.error('❌ Redis Error:', err.message);
+            isRedisAvailable = false;
+        });
+
         await redisClient.connect();
+        isRedisAvailable = true;
+        console.log('✅ Redis Connected');
     } catch (error) {
-        console.warn('⚠️  Redis unavailable - running without cache (performance may be reduced)');
+        console.warn('⚠️  Redis connection failed - continuing without cache');
+        redisClient = null;
         isRedisAvailable = false;
     }
 }
 
 export async function disconnectRedis() {
-    if (isRedisAvailable) {
+    if (redisClient && isRedisAvailable) {
         await redisClient.disconnect();
     }
+}
+
+export function getRedisClient() {
+    return isRedisAvailable ? redisClient : null;
 }
 
 export function getRedisStatus() {
     return isRedisAvailable;
 }
+
+// Export a no-op client for compatibility
+export { redisClient };
