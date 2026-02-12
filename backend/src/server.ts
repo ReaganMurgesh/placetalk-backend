@@ -50,7 +50,7 @@ fastify.get('/health', async () => {
 });
 
 // One-time setup endpoint to create test user
-fastify.post('/setup-test-user', async (request, reply) => {
+fastify.get('/setup-test-user', async (request, reply) => {
     try {
         const { pool } = await import('./config/database.js');
         await pool.query(`
