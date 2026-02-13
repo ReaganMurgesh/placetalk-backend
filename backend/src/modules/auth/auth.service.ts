@@ -33,8 +33,8 @@ export class AuthService {
 
         const user = result.rows[0];
 
-        // Generate tokens
-        const tokens = this.generateTokens(user.id, user.email);
+        // Generate tokens with role
+        const tokens = this.generateTokens(user.id, user.email, user.role);
 
         return {
             user: {
@@ -74,8 +74,8 @@ export class AuthService {
         // Update last login
         await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
-        // Generate tokens
-        const tokens = this.generateTokens(user.id, user.email);
+        // Generate tokens with role
+        const tokens = this.generateTokens(user.id, user.email, user.role);
 
         return {
             user: {
@@ -114,16 +114,16 @@ export class AuthService {
         };
     }
 
-    // Generate JWT tokens
-    private generateTokens(userId: string, email: string): AuthTokens {
+    // Generate JWT tokens with role
+    private generateTokens(userId: string, email: string, role: string): AuthTokens {
         const accessToken = jwt.sign(
-            { userId, email },
+            { userId, email, role },  // Include role in JWT payload
             JWT_SECRET,
             { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as string }
         );
 
         const refreshToken = jwt.sign(
-            { userId, email },
+            { userId, email, role },  // Include role in refresh token
             JWT_REFRESH_SECRET,
             { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '30d') as string }
         );
@@ -132,9 +132,9 @@ export class AuthService {
     }
 
     // Verify access token
-    verifyAccessToken(token: string): { userId: string; email: string } {
+    verifyAccessToken(token: string): { userId: string; email: string; role: string } {
         try {
-            const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string };
+            const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string };
             return decoded;
         } catch (error) {
             throw new Error('Invalid or expired token');
