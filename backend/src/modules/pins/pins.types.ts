@@ -9,7 +9,7 @@ export interface UserPinInteraction {
     nextNotifyAt?: Date | null;
     isMuted: boolean;
     createdAt: Date;
-    updated At: Date;
+    updatedAt: Date;
 }
 
 export interface CreatePinDTO {

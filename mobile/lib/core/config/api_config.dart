@@ -2,7 +2,8 @@
 class ApiConfig {
   // Your WiFi IP — phone and computer must be on the same WiFi
   // Find your IP: Windows → ipconfig → "Wireless LAN adapter Wi-Fi" → IPv4
-  static const String baseUrl = 'https://nia-haplitic-compactly.ngrok-free.dev'; // Ngrok URL
+  // Production cloud URL (Render deployment)
+  static const String baseUrl = 'https://placetalk-backend-1.onrender.com'; // Ngrok URL
   
   // For Android Emulator use: http://10.0.2.2:3000
   // For iOS Simulator use: http://localhost:3000

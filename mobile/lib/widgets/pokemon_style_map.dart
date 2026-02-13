@@ -454,7 +454,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         _userPosition!.latitude, _userPosition!.longitude,
         pin.lat, pin.lon,
       );
-      return dist <= 100; // Show within 100m on map
+      return dist <= 50; // Show within 50m on map
     }).toList();
 
     return MarkerLayer(

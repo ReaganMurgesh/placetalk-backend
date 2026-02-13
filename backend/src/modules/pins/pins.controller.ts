@@ -87,4 +87,90 @@ export async function pinsRoutes(fastify: FastifyInstance) {
             }
         }
     );
+
+    /**
+     * SERENDIPITY: Mark pin as "Good" (7-day cooldown)
+     */
+    fastify.post('/:pinId/mark-good', async (request: any, reply) => {
+        try {
+            const { pinId } = request.params;
+            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+
+            const { pinInteractionsService } = await import('./pin-interactions.service.js');
+            const interaction = await pinInteractionsService.markPinAsGood(userId, pinId);
+
+            return reply.send({
+                success: true,
+                message: 'Pin marked as Good - remind me in 7 days',
+                interaction,
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.code(500).send({ error: 'Failed to mark pin as good' });
+        }
+    });
+
+    /**
+     * SERENDIPITY: Mark pin as "Bad" (mute forever)
+     */
+    fastify.post('/:pinId/mark-bad', async (request: any, reply) => {
+        try {
+            const { pinId } = request.params;
+            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+
+            const { pinInteractionsService } = await import('./pin-interactions.service.js');
+            const interaction = await pinInteractionsService.markPinAsBad(userId, pinId);
+
+            return reply.send({
+                success: true,
+                message: 'Pin muted - you will never be notified again',
+                interaction,
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.code(500).send({ error: 'Failed to mute pin' });
+        }
+    });
+
+    /**
+     * SERENDIPITY: Unmute pin (tap on map)
+     */
+    fastify.post('/:pinId/unmute', async (request: any, reply) => {
+        try {
+            const { pinId } = request.params;
+            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+
+            const { pinInteractionsService } = await import('./pin-interactions.service.js');
+            const interaction = await pinInteractionsService.unmutePinForever(userId, pinId);
+
+            return reply.send({
+                success: true,
+                message: 'Pin unmuted - you will be notified again',
+                interaction,
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.code(500).send({ error: 'Failed to unmute pin' });
+        }
+    });
+
+    /**
+     * Get all user interactions (for syncing to mobile)
+     */
+    fastify.get('/interactions', async (request: any, reply) => {
+        try {
+            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+
+            const { pinInteractionsService } = await import('./pin-interactions.service.js');
+            const interactions = await pinInteractionsService.getUserInteractions(userId);
+
+            return reply.send({
+                interactions,
+                count: interactions.length,
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.code(500).send({ error: 'Failed to fetch interactions' });
+        }
+    });
 }

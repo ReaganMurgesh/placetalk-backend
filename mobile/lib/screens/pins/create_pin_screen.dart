@@ -66,6 +66,43 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       // Get FRESH GPS coordinates (high accuracy) at the exact moment of pin creation
       final position = await locationService.getCurrentPosition();
       
+      setState(() => _isLoading = false);
+      
+      // SHOW GPS COORDINATES TO USER
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('📍 GPS Coordinates'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Latitude: ${position.latitude.toStringAsFixed(6)}'),
+              Text('Longitude: ${position.longitude.toStringAsFixed(6)}'),
+              const SizedBox(height: 16),
+              const Text('Create pin at this location?', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Create Pin'),
+            ),
+          ],
+        ),
+      );
+      
+      if (confirmed != true) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      setState(() => _isLoading = true);
+      
       final apiClient = ref.read(apiClientProvider);
       
       // Call REAL backend API — saves to PostGIS + Redis
