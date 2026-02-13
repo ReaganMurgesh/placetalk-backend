@@ -23,7 +23,8 @@ export class CommunitiesService {
     async getUserCommunities(userId: string): Promise<Community[]> {
         const result = await pool.query(
             `SELECT DISTINCT c.id, c.name, c.description, c.image_url AS "imageUrl", 
-                    c.created_by AS "createdBy", c.created_at AS "createdAt", c.updated_at AS "updatedAt"
+                    COALESCE(c.created_by, '00000000-0000-0000-0000-000000000000') AS "createdBy", 
+                    c.created_at AS "createdAt", c.updated_at AS "updatedAt"
              FROM communities c
              LEFT JOIN community_members cm ON c.id = cm.community_id
              WHERE cm.user_id = $1 OR c.name = 'PlaceTalk Global'
