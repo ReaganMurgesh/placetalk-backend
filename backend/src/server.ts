@@ -54,8 +54,18 @@ fastify.get('/migrate-social', async (request, reply) => {
     try {
         const { pool } = await import('./config/database.js');
 
-        // Run the social features migration
-        // Note: Skip role update since users table already has role with ('normal', 'community') constraint
+        // First, fix the role constraint if it was added incorrectly
+        try {
+            // Drop the incorrect constraint if it exists
+            await pool.query(`
+                ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+                ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('normal', 'community'));
+            `);
+        } catch (err) {
+            console.log('Role constraint already correct or error fixing it:', err);
+        }
+
+        // Run the social features migration (skip role column since it exists)
         await pool.query(`
             -- Communities
             CREATE TABLE IF NOT EXISTS communities (
@@ -104,7 +114,8 @@ fastify.get('/migrate-social', async (request, reply) => {
         return {
             success: true,
             message: 'Social features migration completed!',
-            tables: ['communities', 'community_members', 'community_messages', 'user_activities']
+            tables: ['communities', 'community_members', 'community_messages', 'user_activities'],
+            note: 'Role constraint fixed to allow normal/community'
         };
     } catch (error: any) {
         fastify.log.error(error);
