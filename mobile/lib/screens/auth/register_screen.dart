@@ -47,15 +47,44 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (mounted) {
         Navigator.pop(context); // Go back to login
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registration successful! Please login.')),
+          const SnackBar(
+            content: Text('✅ Registration successful! Please login.'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Registration failed';
+        
+        // Parse specific error messages
+        final errorStr = e.toString().toLowerCase();
+        if (errorStr.contains('409') || errorStr.contains('already registered') || errorStr.contains('conflict')) {
+          errorMessage = '❌ This email is already registered. Try logging in instead.';
+        } else if (errorStr.contains('timeout')) {
+          errorMessage = '⏱️ Server is slow. Please try again in a moment.';
+        } else if (errorStr.contains('400') || errorStr.contains('required')) {
+          errorMessage = '⚠️ Please fill in all required fields correctly.';
+        } else if (errorStr.contains('500') || errorStr.contains('server')) {
+          errorMessage = '🔧 Server error. Please try again later.';
+        } else if (errorStr.contains('network') || errorStr.contains('connection')) {
+          errorMessage = '📡 No internet connection. Check your network.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Registration failed: ${e.toString()}'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: errorStr.contains('409') || errorStr.contains('already registered')
+                ? SnackBarAction(
+                    label: 'Login',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      Navigator.pop(context); // Go to login screen
+                    },
+                  )
+                : null,
           ),
         );
       }
