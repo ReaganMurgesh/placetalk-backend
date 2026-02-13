@@ -1,6 +1,4 @@
 import { pool } from '../../config/database.js';
-import { redisClient, getRedisStatus } from '../../config/redis.js';
-import { encodeGeohash, getNeighbors } from '../../utils/geohash.js';
 import type { DiscoveredPin, DiscoveryResponse } from './discovery.types.js';
 
 const DISCOVERY_RADIUS_METERS = parseInt(process.env.DISCOVERY_RADIUS_METERS || '50');
@@ -8,106 +6,48 @@ const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
 
 export class DiscoveryService {
     /**
-     * Core Discovery Algorithm: Heartbeat → Notification
+     * Simplified Discovery Algorithm (PostgreSQL-only, No Redis)
      * Steps:
-     * A. Receive GPS heartbeat
-     * B. Encode to geohash (coarse filtering)
-     * C. Query Redis for candidate pins
-     * D. PostGIS precise filtering (ST_Distance_Sphere < 50m)
-     * E. Log discovery analytics
-     * F. Return discovered pins
+     * 1. Receive GPS heartbeat
+     * 2. Query PostgreSQL directly with PostGIS ST_Distance
+     * 3. Return all active pins within 50m
+     * 4. Log discoveries
      */
     async processHeartbeat(
         userId: string,
         lat: number,
         lon: number
     ): Promise<DiscoveryResponse> {
-        // Step B: Convert GPS to geohash
-        const centerGeohash = encodeGeohash(lat, lon, GEOHASH_PRECISION);
-        const searchGeohashes = getNeighbors(centerGeohash); // Include 8 neighbors
+        try {
+            // Direct PostgreSQL query with PostGIS
+            const discoveredPins = await this.queryNearbyPinsPostGIS(lat, lon);
 
-        // Step C: Query Redis for candidate pin IDs in these geohash cells
-        const candidatePinIds = await this.getCandidatePinsFromRedis(searchGeohashes);
+            // Log discoveries for analytics
+            for (const pin of discoveredPins) {
+                await this.logDiscovery(userId, pin.id, pin.distance);
+            }
 
-        if (candidatePinIds.length === 0) {
+            console.log(`✅ Discovery: User ${userId} found ${discoveredPins.length} pins at (${lat}, ${lon})`);
+
             return {
-                discovered: [],
-                count: 0,
+                discovered: discoveredPins,
+                count: discoveredPins.length,
                 timestamp: new Date(),
             };
-        }
-
-        // Step D: Precise filtering with PostGIS
-        const discoveredPins = await this.preciseDistanceFilter(lat, lon, candidatePinIds);
-
-        // Step E: Log discoveries for analytics
-        for (const pin of discoveredPins) {
-            await this.logDiscovery(userId, pin.id, pin.distance);
-        }
-
-        return {
-            discovered: discoveredPins,
-            count: discoveredPins.length,
-            timestamp: new Date(),
-        };
-    }
-
-    /**
-     * Query Redis for pins in geohash cells
-     * If Redis unavailable, fall back to direct PostgreSQL query
-     */
-    private async getCandidatePinsFromRedis(geohashes: string[]): Promise<string[]> {
-        // If Redis unavailable, query PostgreSQL directly
-        if (!getRedisStatus()) {
-            console.log('⚠️ Redis unavailable - using PostgreSQL fallback for discovery');
-            return await this.getAllActivePinIds();
-        }
-
-        const pinIds: Set<string> = new Set();
-
-        for (const geohash of geohashes) {
-            try {
-                const pins = await redisClient.sMembers(`geo:${geohash}`);
-                pins.forEach((pinId) => pinIds.add(pinId));
-            } catch (error) {
-                console.error(`Redis error for geohash ${geohash}:`, error);
-            }
-        }
-
-        return Array.from(pinIds);
-    }
-
-    /**
-     * PostgreSQL Fallback: Get all active pin IDs
-     * Used when Redis is unavailable
-     */
-    private async getAllActivePinIds(): Promise<string[]> {
-        try {
-            const result = await pool.query(
-                `SELECT id FROM pins 
-                 WHERE expires_at > NOW() 
-                 ORDER BY created_at DESC 
-                 LIMIT 1000`
-            );
-            return result.rows.map(row => row.id);
         } catch (error) {
-            console.error('PostgreSQL fallback error:', error);
-            return [];
+            console.error('❌ Discovery error:', error);
+            throw error;
         }
     }
 
     /**
-     * Precise distance filtering using PostGIS ST_Distance_Sphere
-     * Only returns pins within DISCOVERY_RADIUS_METERS
+     * Direct PostGIS query for nearby pins
+     * Simplified - no Redis, no geohash, just pure distance calculation
      */
-    private async preciseDistanceFilter(
+    private async queryNearbyPinsPostGIS(
         userLat: number,
-        userLon: number,
-        candidatePinIds: string[]
+        userLon: number
     ): Promise<DiscoveredPin[]> {
-        if (candidatePinIds.length === 0) return [];
-
-        // Check time window if set
         const currentTime = new Date().toTimeString().slice(0, 5); // "HH:MM"
 
         const result = await pool.query(
@@ -126,21 +66,19 @@ export class DiscoveryService {
           ST_MakePoint($1, $2)::geography
         ) AS distance
       FROM pins
-      WHERE id = ANY($3)
-        AND is_deleted = FALSE
-        AND expires_at > NOW()
+      WHERE expires_at > NOW()
         AND (
           visible_from IS NULL 
           OR visible_to IS NULL 
-          OR (CAST($4 AS TIME) >= visible_from AND CAST($4 AS TIME) <= visible_to)
+          OR (CAST($3 AS TIME) >= visible_from AND CAST($3 AS TIME) <= visible_to)
         )
         AND ST_Distance(
           location::geography,
           ST_MakePoint($1, $2)::geography
-        ) < $5
+        ) < $4
       ORDER BY distance ASC
       `,
-            [userLon, userLat, candidatePinIds, currentTime, DISCOVERY_RADIUS_METERS]
+            [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS]
         );
 
         return result.rows.map((row) => ({
@@ -155,6 +93,7 @@ export class DiscoveryService {
             createdBy: row.created_by,
         }));
     }
+
 
     /**
      * Log discovery for analytics
