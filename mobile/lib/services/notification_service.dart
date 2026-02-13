@@ -9,8 +9,14 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  Function(String?, String?)? _actionCallback;
 
-  /// Initialize notification service
+  /// Initialize notification service with action handler
+  Future<void> initializeWithActions(Function(String?, String?)? actionCallback) async {
+    _actionCallback = actionCallback;
+    await initialize();
+  }
+
   Future<void> initialize() async {
     if (_initialized) return;
 
@@ -39,10 +45,17 @@ class NotificationService {
     print('✅ Notification service initialized');
   }
 
-  /// Handle notification tap
+  /// Handle notification tap and actions
   void _onNotificationTap(NotificationResponse response) {
-    print('Notification tapped: ${response.payload}');
-    // TODO: Navigate to pin detail screen
+    print('Notification response: action=${response.actionId}, payload=${response.payload}');
+    
+    if (response.actionId != null && _actionCallback != null) {
+      // Handle action button (Good/Bad)
+      _actionCallback!(response.actionId, response.payload);
+    } else {      // Regular tap - navigate to pin detail
+      print('Notification tapped: ${response.payload}');
+      // TODO: Navigate to pin detail screen
+    }
   }
 
   /// Show proximity alert for a pin

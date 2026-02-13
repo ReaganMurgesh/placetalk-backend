@@ -186,4 +186,27 @@ class ApiClient {
     final response = await _dio.post('/pins/$pinId/dislike');
     return response.data;
   }
+
+  // ========== SERENDIPITY: Pin Interactions ==========
+
+  /// Mark pin as "Good" (7-day cooldown timer)
+  Future<void> markPinGood(String pinId) async {
+    await _dio.post('/pins/$pinId/mark-good');
+  }
+
+  /// Mark pin as "Bad" (mute forever)
+  Future<void> markPinBad(String pinId) async {
+    await _dio.post('/pins/$pinId/mark-bad');
+  }
+
+  /// Unmute pin (re-enable notifications)
+  Future<void> unmutePinForever(String pinId) async {
+    await _dio.post('/pins/$pinId/unmute');
+  }
+
+  /// Get all user interactions (for syncing)
+  Future<List<Map<String, dynamic>>> getPinInteractions() async {
+    final response = await _dio.get('/pins/interactions');
+    return List<Map<String, dynamic>>.from(response.data['interactions']);
+  }
 }

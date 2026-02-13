@@ -31,10 +31,26 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
   }
 
   Future<void> _initializeServices() async {
-    await ref.read(notificationServiceProvider).initialize();
+    // Initialize notifications with action handler
+    await ref.read(notificationServiceProvider).initializeWithActions(_handleNotificationAction);
+    
     // Initialize proximity tracker for automatic notifications
     ref.read(proximityTrackingProvider);
+    
     print('✅ App services initialized (notifications + proximity tracking)');
+  }
+
+  /// Handle notification action buttons (Good/Bad)
+  void _handleNotificationAction(String? action, String? pinId) {
+    if (action == null || pinId == null) return;
+
+    print('🔔 Notification action: $action for pin $pinId');
+
+    if (action == 'good') {
+      ref.read(discoveryProvider.notifier).markPinAsGood(pinId);
+    } else if (action == 'bad') {
+      ref.read(discoveryProvider.notifier).markPinAsBad(pinId);
+    }
   }
 
   @override
