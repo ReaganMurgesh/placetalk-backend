@@ -136,6 +136,36 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
     );
   }
 
+  /// Load nearby pins on app startup (no heartbeat needed)
+  Future<void> loadNearbyPins() async {
+    try {
+      bool locationReady = await _locationService.ensureLocationReady();
+      if (!locationReady) {
+        print('⚠️ Location not ready - skipping initial pin load');
+        return;
+      }
+
+      Position position = await _locationService.getCurrentPosition();
+
+      // Load all pins within discovery range from backend
+      List<Pin> nearbyPins = await _apiClient.getNearbyPins(
+        lat: position.latitude,
+        lon: position.longitude,
+      );
+
+      state = state.copyWith(
+        discoveredPins: nearbyPins,
+        lastPosition: position,
+        lastDiscoveryTime: DateTime.now(),
+      );
+
+      print('🔄 Initial load → ${nearbyPins.length} pins restored from database');
+    } catch (e) {
+      print('❌ Failed to load nearby pins: $e');
+      // Don't rethrow - allow app to continue even if load fails
+    }
+  }
+
   /// Get pins within range of user position (client-side filter for display)
   List<Pin> getPinsInRange({
     required Position userPosition,
