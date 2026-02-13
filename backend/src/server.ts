@@ -85,6 +85,10 @@ await fastify.register(communitiesRoutes, { prefix: '/communities' });
 const { diaryRoutes } = await import('./modules/diary/diary.controller.js');
 await fastify.register(diaryRoutes, { prefix: '/diary' });
 
+// Setup/migration routes (for database setup without shell access)
+const { setupRoutes } = await import('./routes/setup.routes.js');
+await fastify.register(setupRoutes, { prefix: '/setup' });
+
 
 // Startup
 const start = async () => {
