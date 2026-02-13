@@ -78,6 +78,14 @@ await fastify.register(discoveryRoutes, { prefix: '/discovery' });
 await fastify.register(pinsRoutes, { prefix: '/pins' });
 await fastify.register(interactionsRoutes, { prefix: '/pins' });
 
+// Social features routes (Phase 8)
+const { communitiesRoutes } = await import('./modules/communities/communities.controller.js');
+await fastify.register(communitiesRoutes, { prefix: '/communities' });
+
+const { diaryRoutes } = await import('./modules/diary/diary.controller.js');
+await fastify.register(diaryRoutes, { prefix: '/diary' });
+
+
 // Startup
 const start = async () => {
     try {

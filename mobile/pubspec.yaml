@@ -46,8 +46,15 @@ dependencies:
   latlong2: ^0.9.0
   flutter_compass: ^0.8.0        # For map rotation
   
+  # UI & Styling
+  google_fonts: ^6.1.0           # Noto Sans JP font
+  
   # Notifications
   flutter_local_notifications: ^17.2.3
+  
+  # Social Features
+  timeline_tile: ^2.0.0          # Diary timeline UI
+  emoji_picker_flutter: ^1.6.4   # Emoji reactions
   
   # UI
   google_fonts: ^6.2.1
