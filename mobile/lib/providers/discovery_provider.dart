@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:placetalk/services/api_client.dart';
 import 'package:placetalk/services/location_service.dart';
 import 'package:placetalk/models/pin.dart';
+import 'package:placetalk/models/user_pin_interaction.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 
 /// Discovery state
@@ -13,6 +14,7 @@ class DiscoveryState {
   final String? error;
   final Position? lastPosition;
   final DateTime? lastDiscoveryTime;
+  final Map<String, UserPinInteraction> pinInteractions; // NEW: Track mute/cooldown per pin
 
   DiscoveryState({
     this.discoveredPins = const [],
@@ -21,6 +23,7 @@ class DiscoveryState {
     this.error,
     this.lastPosition,
     this.lastDiscoveryTime,
+    this.pinInteractions = const {},
   });
 
   // All pins (discovered + created)
@@ -33,6 +36,7 @@ class DiscoveryState {
     String? error,
     Position? lastPosition,
     DateTime? lastDiscoveryTime,
+    Map<String, UserPinInteraction>? pinInteractions,
   }) {
     return DiscoveryState(
       discoveredPins: discoveredPins ?? this.discoveredPins,
@@ -41,6 +45,7 @@ class DiscoveryState {
       error: error,
       lastPosition: lastPosition ?? this.lastPosition,
       lastDiscoveryTime: lastDiscoveryTime ?? this.lastDiscoveryTime,
+      pinInteractions: pinInteractions ?? this.pinInteractions,
     );
   }
 }
@@ -137,6 +142,83 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
       discoveredPins: [...state.discoveredPins, pin],
     );
     print('✅ Pin added to both createdPins AND discoveredPins for immediate map display');
+  }
+
+  /// SERENDIPITY: Mark pin as "Good" (7-day cooldown)
+  Future<void> markPinAsGood(String pinId) async {
+    try {
+      final nextNotify = DateTime.now().add(const Duration(days: 7));
+      final interaction = UserPinInteraction(
+        pinId: pinId,
+        lastSeenAt: DateTime.now(),
+        nextNotifyAt: nextNotify,
+        isMuted: false,
+      );
+
+      // Update local state
+      state = state.copyWith(
+        pinInteractions: {
+          ...state.pinInteractions,
+          pinId: interaction,
+        },
+      );
+
+      // Sync to backend
+      await _apiClient.markPinGood(pinId);
+      print('✅ Pin marked as Good - remind me in 7 days');
+    } catch (e) {
+      print('❌ Failed to mark pin as good: $e');
+    }
+  }
+
+  /// SERENDIPITY: Mark pin as "Bad" (mute forever)
+  Future<void> markPinAsBad(String pinId) async {
+    try {
+      final interaction = UserPinInteraction(
+        pinId: pinId,
+        lastSeenAt: DateTime.now(),
+        isMuted: true,
+      );
+
+      // Update local state
+      state = state.copyWith(
+        pinInteractions: {
+          ...state.pinInteractions,
+          pinId: interaction,
+        },
+      );
+
+      // Sync to backend
+      await _apiClient.markPinBad(pinId);
+      print('❌ Pin muted - you will never be notified again');
+    } catch (e) {
+      print('❌ Failed to mark pin as bad: $e');
+    }
+  }
+
+  /// SERENDIPITY: Unmute pin (tap on map)
+  Future<void> unmutePinLocally(String pinId) async {
+    try {
+      final interaction = UserPinInteraction(
+        pinId: pinId,
+        lastSeenAt: DateTime.now(),
+        isMuted: false,
+      );
+
+      // Update local state
+      state = state.copyWith(
+        pinInteractions: {
+          ...state.pinInteractions,
+          pinId: interaction,
+        },
+      );
+
+      // Sync to backend
+      await _apiClient.unmutePinForever(pinId);
+      print('✅ Pin unmuted - notifications enabled');
+    } catch (e) {
+      print('❌ Failed to unmute pin: $e');
+    }
   }
 
   /// Load nearby pins on app startup (no heartbeat needed)
