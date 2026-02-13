@@ -12,6 +12,21 @@ final authStateProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref.read(apiClientProvider));
 });
 
+// Current User Provider (convenience provider for accessing current user)
+final currentUserProvider = FutureProvider<User?>((ref) async {
+  final authState = ref.watch(authStateProvider);
+  if (authState.isAuthenticated && authState.token != null) {
+    try {
+      final apiClient = ref.watch(apiClientProvider);
+      apiClient.setAuthToken(authState.token!);
+      return await apiClient.getCurrentUser();
+    } catch (e) {
+      return authState.user;
+    }
+  }
+  return authState.user;
+});
+
 class AuthState {
   final User? user;
   final String? token;

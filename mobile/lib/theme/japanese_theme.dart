@@ -68,7 +68,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   ),
   
   // Card theme (rounded, soft shadows)
-  cardTheme: CardTheme(
+  cardTheme: CardThemeData(
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(16),
     ),

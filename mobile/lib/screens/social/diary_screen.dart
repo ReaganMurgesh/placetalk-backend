@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timeline_tile/timeline_tile.dart';
-import 'package:placetalk/models/diary.dart';
+import 'package:placetalk/models/diary.dart' hide Badge;
+import 'package:placetalk/models/diary.dart' as diary show Badge;
 import 'package:placetalk/services/api_client.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/theme/japanese_theme.dart';
@@ -181,7 +182,7 @@ class _StatsHeader extends StatelessWidget {
 }
 
 class _BadgeChip extends StatelessWidget {
-  final Badge badge;
+  final diary.Badge badge;
 
   const _BadgeChip({required this.badge});
 
