@@ -447,13 +447,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     // Use discoveredPins from heartbeat/loadNearbyPins
     final discoveredPins = state.discoveredPins;
     
-    print('🗺️ MAP DEBUG: discoveredPins count = ${discoveredPins.length}');
-    print('🗺️ MAP DEBUG: userPosition = $_userPosition');
-    
-    if (discoveredPins.isEmpty) {
-      print('🗺️ MAP DEBUG: No pins to render!');
-      return const SizedBox();
-    }
+    if (discoveredPins.isEmpty) return const SizedBox();
     
     final nearbyPins = discoveredPins.where((pin) {
       final dist = Geolocator.distanceBetween(
@@ -462,8 +456,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       );
       return dist <= 100; // Show within 100m on map
     }).toList();
-    
-    print('🗺️ MAP DEBUG: nearbyPins (within 100m) = ${nearbyPins.length}');
 
     return MarkerLayer(
       markers: nearbyPins.map((pin) {
@@ -787,6 +779,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                             ? Geolocator.distanceBetween(
                                 _userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon)
                             : 0.0;
+                        
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: pin.type == 'location' ? Colors.green.withOpacity(0.1) : Colors.purple.withOpacity(0.1),
