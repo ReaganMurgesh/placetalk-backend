@@ -74,10 +74,7 @@ export class AuthService {
             throw new Error('Invalid email or password');
         }
 
-        // Update last login
-        await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
-
-        // Generate tokens with role
+        // Generate tokens with role (removed last_login update - column doesn't exist)
         const tokens = this.generateTokens(user.id, user.email, user.role);
 
         return {

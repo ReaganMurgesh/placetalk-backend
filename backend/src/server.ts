@@ -55,11 +55,8 @@ fastify.get('/migrate-social', async (request, reply) => {
         const { pool } = await import('./config/database.js');
 
         // Run the social features migration
+        // Note: Skip role update since users table already has role with ('normal', 'community') constraint
         await pool.query(`
-            -- Add role to users
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'normal' CHECK (role IN ('normal', 'admin'));
-            CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-            
             -- Communities
             CREATE TABLE IF NOT EXISTS communities (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
