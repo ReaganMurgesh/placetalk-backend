@@ -10,9 +10,9 @@ class ApiClient {
   ApiClient() {
     _dio = Dio(BaseOptions(
       baseUrl: ApiConfig.baseUrl,
-      connectTimeout: const Duration(seconds: 15),  // Increased for phone
-      receiveTimeout: const Duration(seconds: 15),
-      sendTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 30),  // Increased for slow Render free tier
+      receiveTimeout: const Duration(seconds: 30),  // Bcrypt can be slow
+      sendTimeout: const Duration(seconds: 30),
       headers: {
         'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true', // Bypasses Ngrok warning page

@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../../config/database.js';
 import type { RegisterDTO, LoginDTO, UserResponse, AuthTokens } from './auth.types.js';
 
-const SALT_ROUNDS = 12;
+const SALT_ROUNDS = 10;  // Reduced from 12 for faster hashing (still secure)
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
 
