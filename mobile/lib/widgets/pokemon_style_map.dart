@@ -444,8 +444,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   Widget _buildPinMarkers(DiscoveryState state) {
     if (_userPosition == null) return const SizedBox();
     
-    final allPins = state.allPins;
-    final nearbyPins = allPins.where((pin) {
+    // Use discoveredPins from heartbeat/loadNearbyPins
+    final discoveredPins = state.discoveredPins;
+    
+    if (discoveredPins.isEmpty) return const SizedBox();
+    
+    final nearbyPins = discoveredPins.where((pin) {
       final dist = Geolocator.distanceBetween(
         _userPosition!.latitude, _userPosition!.longitude,
         pin.lat, pin.lon,
@@ -735,7 +739,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // PIN LIST
   // ──────────────────────────────────────────────
   void _showPinList() {
-    final allPins = ref.read(discoveryProvider).allPins;
+    final discoveredPins = ref.read(discoveryProvider).discoveredPins;
     
     showModalBottomSheet(
       context: context,
@@ -756,21 +760,21 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               child: Column(children: [
                 Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
                 const SizedBox(height: 12),
-                Text('All Pins (${allPins.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('Discovered Pins (${discoveredPins.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               ]),
             ),
             Expanded(
-              child: allPins.isEmpty
+              child: discoveredPins.isEmpty
                   ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.explore_off, size: 48, color: Colors.grey),
                       SizedBox(height: 8),
-                      Text('No pins yet. Tap Create to add one!', style: TextStyle(color: Colors.grey)),
+                      Text('No pins discovered yet. Walk around to find pins!', style: TextStyle(color: Colors.grey)),
                     ]))
                   : ListView.builder(
                       controller: sc,
-                      itemCount: allPins.length,
+                      itemCount: discoveredPins.length,
                       itemBuilder: (ctx, i) {
-                        final pin = allPins[i];
+                        final pin = discoveredPins[i];
                         final dist = _userPosition != null
                             ? Geolocator.distanceBetween(
                                 _userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon)
