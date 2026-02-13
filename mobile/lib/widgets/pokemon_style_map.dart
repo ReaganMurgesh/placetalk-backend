@@ -473,40 +473,72 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           width: 60,
           height: 80,
           child: GestureDetector(
-            onTap: () => _showPinSheet(pin, dist),
+            onTap: () {
+              // SERENDIPITY: Check if pin is muted
+              final interaction = ref.read(discoveryProvider).pinInteractions[pin.id];
+              final isMuted = interaction?.isMuted ?? false;
+              
+              if (isMuted) {
+                // Tap muted pin → unmute instantly
+                ref.read(discoveryProvider.notifier).unmutePinLocally(pin.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ "${pin.title}" unmuted'),
+                    duration: const Duration(seconds: 2),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } else {
+                _showPinSheet(pin, dist);
+              }
+            },
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Distance badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: isInRange ? color : Colors.grey[400],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${dist.toInt()}m',
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                // Distance badge (shows mute icon if muted)
+                Builder(
+                  builder: (ctx) {
+                    final interaction = ref.watch(discoveryProvider).pinInteractions[pin.id];
+                    final isMuted = interaction?.isMuted ?? false;
+                    final badgeColor = isMuted ? Colors.grey.withOpacity(0.6) : (isInRange ? color : Colors.grey[400]!);
+                    
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        isMuted ? '🔇' : '${dist.toInt()}m',
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(height: 2),
-                // Pin icon
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: isInRange ? color : Colors.grey[400],
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: isInRange
-                        ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)]
-                        : null,
-                  ),
-                  child: Icon(
-                    pin.type == 'sensation' ? Icons.auto_awesome : Icons.place,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                // Pin icon (greyed if muted)
+                Builder(
+                  builder: (ctx) {
+                    final interaction = ref.watch(discoveryProvider).pinInteractions[pin.id];
+                    final isMuted = interaction?.isMuted ?? false;
+                    final markerColor = isMuted ? Colors.grey.withOpacity(0.5) : (isInRange ? color : Colors.grey[400]!);
+                    
+                    return Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: markerColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: isInRange && !isMuted
+                            ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)]
+                            : null,
+                      ),
+                      child: Icon(
+                        isMuted ? Icons.volume_off : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place),
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
