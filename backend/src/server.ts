@@ -49,6 +49,75 @@ fastify.get('/health', async () => {
     };
 });
 
+// Database migration endpoint (run once to setup social features)
+fastify.get('/migrate-social', async (request, reply) => {
+    try {
+        const { pool } = await import('./config/database.js');
+
+        // Run the social features migration
+        await pool.query(`
+            -- Add role to users
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'normal' CHECK (role IN ('normal', 'admin'));
+            CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+            
+            -- Communities
+            CREATE TABLE IF NOT EXISTS communities (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                name VARCHAR(100) NOT NULL,
+                description TEXT,
+                image_url TEXT,
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            
+            -- Community membership
+            CREATE TABLE IF NOT EXISTS community_members (
+                community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                joined_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (community_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members(user_id);
+            
+            -- Community messages
+            CREATE TABLE IF NOT EXISTS community_messages (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                content TEXT NOT NULL,
+                image_url TEXT,
+                reactions JSONB DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_community_messages_community ON community_messages(community_id, created_at DESC);
+            
+            -- User activities
+            CREATE TABLE IF NOT EXISTS user_activities (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                pin_id UUID REFERENCES pins(id) ON DELETE CASCADE,
+                activity_type VARCHAR(20) NOT NULL CHECK (activity_type IN ('visited', 'liked', 'commented', 'created')),
+                metadata JSONB DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_activities_user_date ON user_activities(user_id, created_at DESC);
+        `);
+
+        return {
+            success: true,
+            message: 'Social features migration completed!',
+            tables: ['communities', 'community_members', 'community_messages', 'user_activities']
+        };
+    } catch (error: any) {
+        fastify.log.error(error);
+        if (error.message?.includes('already exists')) {
+            return { success: true, message: 'Migration already run - tables exist!' };
+        }
+        return reply.code(500).send({ success: false, error: error.message });
+    }
+});
+
 // One-time setup endpoint to create test user
 fastify.get('/setup-test-user', async (request, reply) => {
     try {
