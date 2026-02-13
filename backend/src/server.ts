@@ -72,7 +72,17 @@ fastify.get('/migrate-social', async (request, reply) => {
         // 3. Drop hardcoded names just in case they weren't found above
         await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
 
-        // 4. Add the CORRECT constraint
+        // 4. SANITIZE DATA: Fix any rows that would violate the new constraint
+        // Set NULL or invalid roles to 'normal'
+        await pool.query(`
+            UPDATE users 
+            SET role = 'normal' 
+            WHERE role IS NULL 
+               OR role NOT IN ('normal', 'community', 'admin')
+        `);
+        logs.push('Sanitized existing user roles (set invalid/null to normal)');
+
+        // 5. Add the CORRECT constraint
         // Allowing 'normal', 'community', AND 'admin' to cover all bases
         await pool.query(`
             ALTER TABLE users ADD CONSTRAINT users_role_check 
