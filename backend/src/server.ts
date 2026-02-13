@@ -198,6 +198,21 @@ const start = async () => {
         // Run migrations (create tables if they don't exist)
         await runMigrations();
 
+        // Ensure Global Community exists
+        const { pool } = await import('./config/database.js');
+        const globalCommunity = await pool.query("SELECT id FROM communities WHERE name = 'PlaceTalk Global'");
+        if (globalCommunity.rowCount === 0) {
+            await pool.query(`
+                INSERT INTO communities (name, description, image_url)
+                VALUES (
+                    'PlaceTalk Global', 
+                    'The main gathering place for all explorers. Welcome!',
+                    'https://images.unsplash.com/photo-1511632765486-a01980e01a18?q=80&w=2070&auto=format&fit=crop'
+                )
+            `);
+            console.log('Created default PlaceTalk Global community');
+        }
+
         // Connect to Redis (disabled - not available on Render free tier)
         // await connectRedis();
 

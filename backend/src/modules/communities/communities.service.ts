@@ -22,12 +22,12 @@ export class CommunitiesService {
      */
     async getUserCommunities(userId: string): Promise<Community[]> {
         const result = await pool.query(
-            `SELECT c.id, c.name, c.description, c.image_url AS "imageUrl", 
+            `SELECT DISTINCT c.id, c.name, c.description, c.image_url AS "imageUrl", 
                     c.created_by AS "createdBy", c.created_at AS "createdAt", c.updated_at AS "updatedAt"
-       FROM communities c
-       INNER JOIN community_members cm ON c.id = cm.community_id
-       WHERE cm.user_id = $1
-       ORDER BY cm.joined_at DESC`,
+             FROM communities c
+             LEFT JOIN community_members cm ON c.id = cm.community_id
+             WHERE cm.user_id = $1 OR c.name = 'PlaceTalk Global'
+             ORDER BY c.created_at DESC`,
             [userId]
         );
 
