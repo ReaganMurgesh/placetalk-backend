@@ -511,7 +511,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                       child: Text(
                         isMuted ? '🔇' : '${dist.toInt()}m',
                         style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
-                  ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 2),
                 // Pin icon (greyed if muted)
