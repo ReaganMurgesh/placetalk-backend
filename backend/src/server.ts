@@ -53,21 +53,35 @@ fastify.get('/health', async () => {
 fastify.get('/migrate-social', async (request, reply) => {
     try {
         const { pool } = await import('./config/database.js');
+        const logs: string[] = [];
 
-        // First, fix the role constraint if it was added incorrectly
-        try {
-            // Drop the incorrect constraint if it exists
-            await pool.query(`
-                ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-                ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('normal', 'community'));
-            `);
-        } catch (err) {
-            console.log('Role constraint already correct or error fixing it:', err);
+        // 1. Inspect existing constraints
+        const constraints = await pool.query(`
+            SELECT conname, pg_get_constraintdef(oid) as def
+            FROM pg_constraint
+            WHERE conrelid = 'users'::regclass AND conname LIKE '%role%'
+        `);
+        logs.push(`Found existing constraints: ${constraints.rows.map(r => r.conname).join(', ')}`);
+
+        // 2. Drop ALL role constraints to be safe
+        for (const row of constraints.rows) {
+            await pool.query(`ALTER TABLE users DROP CONSTRAINT "${row.conname}"`);
+            logs.push(`Dropped constraint: ${row.conname}`);
         }
 
-        // Run the social features migration (skip role column since it exists)
+        // 3. Drop hardcoded names just in case they weren't found above
+        await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
+
+        // 4. Add the CORRECT constraint
+        // Allowing 'normal', 'community', AND 'admin' to cover all bases
         await pool.query(`
-            -- Communities
+            ALTER TABLE users ADD CONSTRAINT users_role_check 
+            CHECK (role IN ('normal', 'community', 'admin'))
+        `);
+        logs.push('Added correct users_role_check constraint');
+
+        // 5. Run other social tables creation
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS communities (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                 name VARCHAR(100) NOT NULL,
@@ -78,7 +92,6 @@ fastify.get('/migrate-social', async (request, reply) => {
                 updated_at TIMESTAMP DEFAULT NOW()
             );
             
-            -- Community membership
             CREATE TABLE IF NOT EXISTS community_members (
                 community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
                 user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -87,7 +100,6 @@ fastify.get('/migrate-social', async (request, reply) => {
             );
             CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members(user_id);
             
-            -- Community messages
             CREATE TABLE IF NOT EXISTS community_messages (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                 community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
@@ -99,7 +111,6 @@ fastify.get('/migrate-social', async (request, reply) => {
             );
             CREATE INDEX IF NOT EXISTS idx_community_messages_community ON community_messages(community_id, created_at DESC);
             
-            -- User activities
             CREATE TABLE IF NOT EXISTS user_activities (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                 user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -113,16 +124,13 @@ fastify.get('/migrate-social', async (request, reply) => {
 
         return {
             success: true,
-            message: 'Social features migration completed!',
-            tables: ['communities', 'community_members', 'community_messages', 'user_activities'],
-            note: 'Role constraint fixed to allow normal/community'
+            message: 'Deep migration fix completed!',
+            logs: logs,
+            tables: ['communities', 'community_members', 'community_messages', 'user_activities']
         };
     } catch (error: any) {
         fastify.log.error(error);
-        if (error.message?.includes('already exists')) {
-            return { success: true, message: 'Migration already run - tables exist!' };
-        }
-        return reply.code(500).send({ success: false, error: error.message });
+        return reply.code(500).send({ success: false, error: error.message, stack: error.stack });
     }
 });
 
