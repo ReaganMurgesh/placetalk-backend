@@ -1,6 +1,6 @@
 /// User-Pin Interaction Model for Serendipity Notifications
 /// Tracks per-user mute status, cooldown timers, and notification history
-class UserPin Interaction {
+class UserPinInteraction {
   final String pinId;
   final DateTime lastSeenAt;
   final DateTime? nextNotifyAt;

@@ -125,4 +125,54 @@ class NotificationService {
 
     print('📬 Discovery notification: $title - $body');
   }
+
+  // ========== SERENDIPITY: Sequential Notifications ==========
+
+  /// Show pin notifications sequentially with 0.8s delay (jackpot effect)
+  Future<void> showSequentialPinNotifications(List<dynamic> pins) async {
+    await initialize();
+    
+    if (pins.isEmpty) return;
+
+    print('🎰 SERENDIPITY: ${pins.length} pins notification sequence starting...');
+
+    for (int i = 0; i < pins.length; i++) {
+      final pin = pins[i];
+      
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'pin_discovery',
+        'Pin Discovery',
+        channelDescription: 'Discover nearby pins',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        actions: <AndroidNotificationAction>[
+          AndroidNotificationAction('good', 'Good 👍', showsUserInterface: false, cancelNotification: true),
+          AndroidNotificationAction('bad', 'Bad 🔇', showsUserInterface: false, cancelNotification: true),
+        ],
+      );
+
+      final pinId = pin['id'] ?? pin.id;
+      final title = pin['title'] ?? pin.title;
+      final directions = pin['directions'] ?? pin.directions;
+
+      await _notifications.show(
+        pinId.hashCode + i,
+        '📍 $title',
+        directions,
+        const NotificationDetails(android: androidDetails),
+        payload: pinId.toString(),
+      );
+
+      print('✅ ${i + 1}/${pins.length}: $title');
+
+      // 0.8s delay for jackpot effect
+      if (i < pins.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+    }
+
+    print('🎉 Notification sequence complete!');
+  }
 }

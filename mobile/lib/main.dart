@@ -5,6 +5,7 @@ import 'package:placetalk/screens/home/home_screen.dart';
 import 'package:placetalk/screens/pins/create_pin_screen.dart';
 import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/services/proximity_tracker.dart';
+import 'package:placetalk/providers/discovery_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
