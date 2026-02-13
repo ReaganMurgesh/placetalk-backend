@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:placetalk/screens/home/home_screen.dart';
+import 'package:placetalk/screens/auth/login_screen.dart';
 import 'package:placetalk/screens/pins/create_pin_screen.dart';
 import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/services/proximity_tracker.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
+import 'package:placetalk/providers/auth_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,17 +62,36 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
       title: 'PlaceTalk',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
+          seedColor: const Color(0xFF68BE8D), // Wakatake green
           brightness: Brightness.light,
         ),
-        useMaterial3: true,
-        textTheme: GoogleFonts.interTextTheme(),
+        fontFamily: GoogleFonts.notoSansJp().fontFamily,
       ),
-      home: const HomeScreen(),
+      home: const AuthCheck(),
       routes: {
+        '/home': (context) => const HomeScreen(),
         '/create-pin': (context) => const CreatePinScreen(),
       },
     );
+  }
+}
+
+// Authentication check widget
+class AuthCheck extends ConsumerWidget {
+  const AuthCheck({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authStateProvider);
+
+    // Show login screen if not authenticated
+    if (!authState.isAuthenticated) {
+      return const LoginScreen();
+    }
+
+    // Show home screen if authenticated
+    return const HomeScreen();
   }
 }
