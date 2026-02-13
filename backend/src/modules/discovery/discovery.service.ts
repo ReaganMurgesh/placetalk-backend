@@ -61,6 +61,8 @@ export class DiscoveryService {
         pin_category,
         attribute_id,
         created_by,
+        ST_Y(location::geometry) AS lat,
+        ST_X(location::geometry) AS lon,
         ST_Distance(
           location::geography,
           ST_MakePoint($1, $2)::geography
@@ -86,6 +88,8 @@ export class DiscoveryService {
             title: row.title,
             directions: row.directions,
             details: row.details,
+            lat: row.lat,
+            lon: row.lon,
             distance: Math.round(row.distance),
             type: row.type,
             pinCategory: row.pin_category,
