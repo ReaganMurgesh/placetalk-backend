@@ -1,5 +1,3 @@
-import type { Request, Response, NextFunction } from 'fastify';
-
 /**
  * Middleware to require admin role for protected routes
  */
