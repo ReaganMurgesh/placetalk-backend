@@ -1,3 +1,17 @@
+/**
+ * User-Pin Interaction for Serendipity Notifications
+ * Tracks per-user mute status and cooldown timers
+ */
+export interface UserPinInteraction {
+    userId: string;
+    pinId: string;
+    lastSeenAt: Date;
+    nextNotifyAt?: Date | null;
+    isMuted: boolean;
+    createdAt: Date;
+    updated At: Date;
+}
+
 export interface CreatePinDTO {
     title: string;
     directions: string;
