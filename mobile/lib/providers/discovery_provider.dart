@@ -133,7 +133,10 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
   void addCreatedPin(Pin pin) {
     state = state.copyWith(
       createdPins: [...state.createdPins, pin],
+      // Also add to discoveredPins so it appears on map immediately!
+      discoveredPins: [...state.discoveredPins, pin],
     );
+    print('✅ Pin added to both createdPins AND discoveredPins for immediate map display');
   }
 
   /// Load nearby pins on app startup (no heartbeat needed)
