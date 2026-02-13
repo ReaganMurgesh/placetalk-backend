@@ -54,12 +54,13 @@ export class DiscoveryService {
 
     /**
      * Query Redis for pins in geohash cells
-     * Uses Redis sorted sets with geohash as key
+     * If Redis unavailable, fall back to direct PostgreSQL query
      */
     private async getCandidatePinsFromRedis(geohashes: string[]): Promise<string[]> {
-        // If Redis unavailable, return empty (will fall back to DB query)
+        // If Redis unavailable, query PostgreSQL directly
         if (!getRedisStatus()) {
-            return [];
+            console.log('⚠️ Redis unavailable - using PostgreSQL fallback for discovery');
+            return await this.getAllActivePinIds();
         }
 
         const pinIds: Set<string> = new Set();
@@ -74,6 +75,25 @@ export class DiscoveryService {
         }
 
         return Array.from(pinIds);
+    }
+
+    /**
+     * PostgreSQL Fallback: Get all active pin IDs
+     * Used when Redis is unavailable
+     */
+    private async getAllActivePinIds(): Promise<string[]> {
+        try {
+            const result = await pool.query(
+                `SELECT id FROM pins 
+                 WHERE expires_at > NOW() 
+                 ORDER BY created_at DESC 
+                 LIMIT 1000`
+            );
+            return result.rows.map(row => row.id);
+        } catch (error) {
+            console.error('PostgreSQL fallback error:', error);
+            return [];
+        }
     }
 
     /**
