@@ -56,9 +56,6 @@ dependencies:
   timeline_tile: ^2.0.0          # Diary timeline UI
   emoji_picker_flutter: ^1.6.4   # Emoji reactions
   
-  # UI
-  google_fonts: ^6.2.1
-  
   # Local Storage
   shared_preferences: ^2.2.2
   
