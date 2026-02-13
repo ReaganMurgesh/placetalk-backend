@@ -209,4 +209,68 @@ class ApiClient {
     final response = await _dio.get('/pins/interactions');
     return List<Map<String, dynamic>>.from(response.data['interactions']);
   }
+
+  // ========== Communities ==========
+
+  Future<List<dynamic>> getJoinedCommunities() async {
+    final response = await _dio.get('/communities/joined');
+    return response.data['communities'] ?? [];
+  }
+
+  Future<void> joinCommunity(String communityId) async {
+    await _dio.post('/communities/$communityId/join');
+  }
+
+  Future<void> leaveCommunity(String communityId) async {
+    await _dio.delete('/communities/$communityId/leave');
+  }
+
+  Future<List<dynamic>> getCommunityMessages(String communityId, {int limit = 50, int offset = 0}) async {
+    final response = await _dio.get(
+      '/communities/$communityId/messages',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return response.data['messages'] ?? [];
+  }
+
+  Future<void> postCommunityMessage(String communityId, {required String content, String? imageUrl}) async {
+    await _dio.post(
+      '/communities/$communityId/messages',
+      data: {'content': content, 'imageUrl': imageUrl},
+    );
+  }
+
+  Future<void> toggleReaction(String messageId, String emoji) async {
+    await _dio.post(
+      '/messages/$messageId/reactions',
+      data: {'emoji': emoji},
+    );
+  }
+
+  // ========== Diary ==========
+
+  Future<List<dynamic>> getDiaryTimeline({DateTime? startDate, DateTime? endDate, int limit = 100}) async {
+    final queryParams = <String, dynamic>{'limit': limit};
+    if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
+    if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
+
+    final response = await _dio.get('/diary/timeline', queryParameters: queryParams);
+    return response.data['timeline'] ?? [];
+  }
+
+  Future<Map<String, dynamic>> getDiaryStats() async {
+    final response = await _dio.get('/diary/stats');
+    return response.data;
+  }
+
+  Future<void> logActivity(String pinId, String activityType, {Map<String, dynamic>? metadata}) async {
+    await _dio.post(
+      '/diary/log',
+      data: {
+        'pinId': pinId,
+        'activityType': activityType,
+        'metadata': metadata,
+      },
+    );
+  }
 }
