@@ -178,12 +178,12 @@ class ApiClient {
   // ========== Interactions ==========
 
   Future<Map<String, dynamic>> likePin(String pinId) async {
-    final response = await _dio.post('${ApiConfig.pinsGetById}/$pinId/like');
+    final response = await _dio.post('/pins/$pinId/like');
     return response.data;
   }
 
   Future<Map<String, dynamic>> dislikePin(String pinId) async {
-    final response = await _dio.post('${ApiConfig.pinsGetById}/$pinId/dislike');
+    final response = await _dio.post('/pins/$pinId/dislike');
     return response.data;
   }
 }

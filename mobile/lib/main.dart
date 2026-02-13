@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:placetalk/screens/home/home_screen.dart';
 import 'package:placetalk/screens/pins/create_pin_screen.dart';
 import 'package:placetalk/services/notification_service.dart';
+import 'package:placetalk/services/proximity_tracker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +32,9 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
 
   Future<void> _initializeServices() async {
     await ref.read(notificationServiceProvider).initialize();
-    print('✅ App services initialized');
+    // Initialize proximity tracker for automatic notifications
+    ref.read(proximityTrackingProvider);
+    print('✅ App services initialized (notifications + proximity tracking)');
   }
 
   @override
