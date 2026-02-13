@@ -54,7 +54,7 @@ dependencies:
   
   # Social Features
   timeline_tile: ^2.0.0          # Diary timeline UI
-  emoji_picker_flutter: ^1.6.4   # Emoji reactions
+  # emoji_picker_flutter: ^1.6.4   # Emoji reactions (temporarily disabled - JVM compat issue)
   
   # Local Storage
   shared_preferences: ^2.2.2
