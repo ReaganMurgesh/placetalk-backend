@@ -57,16 +57,15 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
 
   Future<void> _createPin() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_currentPosition == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for GPS location...'), backgroundColor: Colors.orange),
-      );
-      return;
-    }
-
+    
     setState(() => _isLoading = true);
 
     try {
+      final locationService = ref.read(locationServiceProvider);
+      
+      // Get FRESH GPS coordinates (high accuracy) at the exact moment of pin creation
+      final position = await locationService.getCurrentPosition();
+      
       final apiClient = ref.read(apiClientProvider);
       
       // Call REAL backend API — saves to PostGIS + Redis
@@ -76,8 +75,8 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
         details: _detailsController.text.trim().isNotEmpty 
             ? _detailsController.text.trim() 
             : null,
-        lat: _currentPosition!.latitude,
-        lon: _currentPosition!.longitude,
+        lat: position.latitude,  // Use fresh coordinates
+        lon: position.longitude, // Use fresh coordinates
         type: _pinType,
         pinCategory: _pinCategory,
       );

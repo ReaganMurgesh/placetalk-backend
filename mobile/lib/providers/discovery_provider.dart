@@ -98,7 +98,6 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
   }
 
   /// Manual discovery check (Discover button)
-  /// Fully backend-dependent — no demo pins
   Future<void> manualDiscovery() async {
     state = state.copyWith(isDiscovering: true, error: null);
 

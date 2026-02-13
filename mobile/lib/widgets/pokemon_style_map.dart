@@ -84,6 +84,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     
     _initCompass();
     _initGps();
+    
+    // Load existing pins from backend on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(discoveryProvider.notifier).loadNearbyPins();
+    });
   }
 
   @override
