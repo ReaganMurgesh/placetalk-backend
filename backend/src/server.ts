@@ -18,6 +18,8 @@ const fastify = Fastify({
     },
 });
 
+console.log('🚀 PlaceTalk Server Starting... v2.1 (Middleware Fixes Applied)');
+
 // Register plugins
 await fastify.register(cors, {
     origin: true,  // Allow all origins (mobile app)

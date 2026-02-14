@@ -120,16 +120,24 @@ export class AuthService {
 
     // Generate JWT tokens with role
     private generateTokens(userId: string, email: string, role: string): AuthTokens {
+        const signOptions: any = {
+            expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+        };
+
         const accessToken = jwt.sign(
-            { userId, email, role },  // Include role in JWT payload
+            { userId, email, role },
             JWT_SECRET,
-            { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as string }
+            signOptions
         );
 
+        const refreshOptions: any = {
+            expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d'
+        };
+
         const refreshToken = jwt.sign(
-            { userId, email, role },  // Include role in refresh token
+            { userId, email, role },
             JWT_REFRESH_SECRET,
-            { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '30d') as string }
+            refreshOptions
         );
 
         return { accessToken, refreshToken };
