@@ -18,16 +18,17 @@ export class PinsService {
      */
     async createPin(data: CreatePinDTO, userId: string): Promise<PinResponse> {
         // Step 1: Validate community pin permissions
-        if (data.pinCategory === 'community') {
-            const userResult = await pool.query(
-                'SELECT role FROM users WHERE id = $1',
-                [userId]
-            );
-
-            if (userResult.rows.length === 0 || userResult.rows[0].role !== 'community') {
-                throw new Error('Only community users can create community pins');
-            }
-        }
+        // Step 1: Validate community pin permissions (DISABLED for MVP)
+        // if (data.pinCategory === 'community') {
+        //     const userResult = await pool.query(
+        //         'SELECT role FROM users WHERE id = $1',
+        //         [userId]
+        //     );
+        //
+        //     if (userResult.rows.length === 0 || userResult.rows[0].role !== 'community') {
+        //         throw new Error('Only community users can create community pins');
+        //     }
+        // }
 
         // Step 2: Calculate expiration
         const expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);

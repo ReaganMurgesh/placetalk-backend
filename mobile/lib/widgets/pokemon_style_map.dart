@@ -464,9 +464,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           pin.lat, pin.lon,
         );
         final isInRange = dist <= 50;
-        final color = pin.type == 'sensation' 
-            ? const Color(0xFF9C27B0) 
-            : const Color(0xFF4CAF50);
+        final color = pin.pinCategory == 'community'
+            ? const Color(0xFFFF9800) // Orange
+            : (pin.type == 'sensation' ? const Color(0xFF9C27B0) : const Color(0xFF4CAF50));
 
         return Marker(
           point: LatLng(pin.lat, pin.lon),
@@ -535,7 +535,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                             : null,
                       ),
                       child: Icon(
-                        isMuted ? Icons.volume_off : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place),
+                        isMuted 
+                            ? Icons.volume_off 
+                            : (pin.pinCategory == 'community' 
+                                ? Icons.groups 
+                                : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place)),
                         color: Colors.white,
                         size: 20,
                       ),
@@ -717,8 +721,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             const SizedBox(height: 16),
             // Title
             Row(children: [
-              Icon(pin.type == 'location' ? Icons.place : Icons.auto_awesome,
-                color: pin.type == 'location' ? Colors.green : Colors.purple, size: 26),
+              Icon(
+                pin.pinCategory == 'community' ? Icons.groups : (pin.type == 'location' ? Icons.place : Icons.auto_awesome),
+                color: pin.pinCategory == 'community' ? Colors.orange : (pin.type == 'location' ? Colors.green : Colors.purple), 
+                size: 26
+              ),
               const SizedBox(width: 10),
               Expanded(child: Text(pin.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700))),
             ]),

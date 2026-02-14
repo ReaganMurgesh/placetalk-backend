@@ -211,31 +211,31 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
 
               const SizedBox(height: 24),
 
-              // Pin Type Selector
-              const Text('Pin Type', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              // Pin Category Selector
+              const Text('Pin Category', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _pinType = 'location'),
+                      onTap: () => setState(() => _pinCategory = 'normal'),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: _pinType == 'location' ? const Color(0xFF4CAF50).withOpacity(0.1) : Colors.white,
+                          color: _pinCategory == 'normal' ? const Color(0xFF4CAF50).withOpacity(0.1) : Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _pinType == 'location' ? const Color(0xFF4CAF50) : Colors.grey[300]!,
-                            width: _pinType == 'location' ? 2 : 1,
+                            color: _pinCategory == 'normal' ? const Color(0xFF4CAF50) : Colors.grey[300]!,
+                            width: _pinCategory == 'normal' ? 2 : 1,
                           ),
                         ),
                         child: Column(
                           children: [
-                            Icon(Icons.place, color: _pinType == 'location' ? const Color(0xFF4CAF50) : Colors.grey, size: 28),
+                            Icon(Icons.place, color: _pinCategory == 'normal' ? const Color(0xFF4CAF50) : Colors.grey, size: 28),
                             const SizedBox(height: 4),
-                            Text('Location', style: TextStyle(
+                            Text('Normal', style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              color: _pinType == 'location' ? const Color(0xFF4CAF50) : Colors.grey,
+                              color: _pinCategory == 'normal' ? const Color(0xFF4CAF50) : Colors.grey,
                             )),
                           ],
                         ),
@@ -245,24 +245,24 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _pinType = 'sensation'),
+                      onTap: () => setState(() => _pinCategory = 'community'),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: _pinType == 'sensation' ? const Color(0xFF9C27B0).withOpacity(0.1) : Colors.white,
+                          color: _pinCategory == 'community' ? const Color(0xFFFF9800).withOpacity(0.1) : Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _pinType == 'sensation' ? const Color(0xFF9C27B0) : Colors.grey[300]!,
-                            width: _pinType == 'sensation' ? 2 : 1,
+                            color: _pinCategory == 'community' ? const Color(0xFFFF9800) : Colors.grey[300]!,
+                            width: _pinCategory == 'community' ? 2 : 1,
                           ),
                         ),
                         child: Column(
                           children: [
-                            Icon(Icons.auto_awesome, color: _pinType == 'sensation' ? const Color(0xFF9C27B0) : Colors.grey, size: 28),
+                            Icon(Icons.groups, color: _pinCategory == 'community' ? const Color(0xFFFF9800) : Colors.grey, size: 28),
                             const SizedBox(height: 4),
-                            Text('Sensation', style: TextStyle(
+                            Text('Community', style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              color: _pinType == 'sensation' ? const Color(0xFF9C27B0) : Colors.grey,
+                              color: _pinCategory == 'community' ? const Color(0xFFFF9800) : Colors.grey,
                             )),
                           ],
                         ),
