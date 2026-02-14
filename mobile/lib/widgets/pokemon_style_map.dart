@@ -10,6 +10,10 @@ import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/services/location_service.dart';
 import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/models/pin.dart';
+import 'package:placetalk/providers/auth_provider.dart';
+import 'package:placetalk/models/community.dart';
+import 'package:placetalk/screens/social/community_screen.dart';
+import 'package:placetalk/theme/japanese_theme.dart';
 
 /// ==========================================================
 /// POKÉMON GO STYLE MAP
@@ -767,9 +771,54 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 },
                 icon: const Icon(Icons.thumb_down, color: Colors.red),
                 label: Text('Dislike (${pin.dislikeCount})', style: const TextStyle(color: Colors.red)),
+                label: Text('Dislike (${pin.dislikeCount})', style: const TextStyle(color: Colors.red)),
                 style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 12)),
               )),
             ]),
+            
+            // Community Join Button (Only for Community Pins)
+            if (pin.pinCategory == 'community') ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    // Show loading feedback
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(content: Text('Connecting to community...'), duration: Duration(milliseconds: 1000)),
+                    );
+                    
+                    try {
+                      final apiClient = ref.read(apiClientProvider);
+                      // Find or Create Community based on Pin Title
+                      final communityJson = await apiClient.findOrCreateCommunity(pin.title);
+                      final community = Community.fromJson(communityJson);
+                      
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx); // Close sheet
+                        Navigator.push(
+                          ctx,
+                          MaterialPageRoute(builder: (_) => CommunityPage(community: community)),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(content: Text('Failed to join: $e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.groups, color: Colors.white),
+                  label: const Text('Enter Community Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange, // Use direct color or JapaneseColors.kogane
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

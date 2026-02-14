@@ -18,6 +18,36 @@ export class CommunitiesService {
     }
 
     /**
+     * Find or create a community by name
+     */
+    async findOrCreateCommunity(name: string, userId: string): Promise<Community> {
+        // 1. Try to find existing
+        const findResult = await pool.query(
+            `SELECT id, name, description, image_url AS "imageUrl", 
+                    created_by AS "createdBy", created_at AS "createdAt"
+             FROM communities 
+             WHERE name = $1`,
+            [name]
+        );
+
+        if (findResult.rows.length > 0) {
+            return findResult.rows[0];
+        }
+
+        // 2. Create new if not found
+        // Use a default description and image for auto-created communities
+        const createResult = await pool.query(
+            `INSERT INTO communities (name, description, image_url, created_by)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, name, description, image_url AS "imageUrl", created_by AS "createdBy", 
+                       created_at AS "createdAt", updated_at AS "updatedAt"`,
+            [name, `Community for ${name}`, null, userId]
+        );
+
+        return createResult.rows[0];
+    }
+
+    /**
      * Get all communities user has joined
      */
     async getUserCommunities(userId: string): Promise<Community[]> {

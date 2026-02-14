@@ -217,6 +217,14 @@ class ApiClient {
     return response.data['communities'] ?? [];
   }
 
+  Future<Map<String, dynamic>> findOrCreateCommunity(String name) async {
+    final response = await _dio.post(
+      '/communities/find-or-create',
+      data: {'name': name},
+    );
+    return response.data['community'];
+  }
+
   Future<void> joinCommunity(String communityId) async {
     await _dio.post('/communities/$communityId/join');
   }

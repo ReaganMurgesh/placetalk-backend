@@ -27,6 +27,30 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
     );
 
     /**
+     * Find or Create Community (for Pin linking)
+     */
+    fastify.post<{ Body: { name: string } }>(
+        '/find-or-create',
+        { preHandler: requireAuth },
+        async (request: any, reply) => {
+            try {
+                const { name } = request.body;
+                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+
+                const community = await communitiesService.findOrCreateCommunity(name, userId);
+
+                // Auto-join the user to this community
+                await communitiesService.joinCommunity(community.id, userId);
+
+                return reply.send({ community });
+            } catch (error: any) {
+                fastify.log.error(error);
+                return reply.code(500).send({ error: 'Failed to find or create community' });
+            }
+        }
+    );
+
+    /**
      * Get user's joined communities
      */
     fastify.get('/joined', { preHandler: requireAuth }, async (request: any, reply) => {

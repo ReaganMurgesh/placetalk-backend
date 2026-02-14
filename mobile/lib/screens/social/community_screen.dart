@@ -4,6 +4,7 @@ import 'package:placetalk/models/community.dart';
 import 'package:placetalk/services/api_client.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/theme/japanese_theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final communitiesProvider = FutureProvider<List<Community>>((ref) async {
   final apiClient = ref.watch(apiClientProvider);
@@ -169,12 +170,21 @@ class CommunityPage extends ConsumerStatefulWidget {
 class _CommunityPageState extends ConsumerState<CommunityPage> {
   List<CommunityMessage> _messages = [];
   bool _isLoading = true;
+  bool _notificationsEnabled = false; // Default OFF
   final _messageController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadMessages();
+    _loadNotificationPref();
+  }
+
+  Future<void> _loadNotificationPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _notificationsEnabled = prefs.getBool('notify_community_${widget.community.id}') ?? false;
+    });
   }
 
   Future<void> _loadMessages() async {
@@ -217,12 +227,33 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).value;
-    final isAdmin = user?.role == 'admin';
+    // Admin = System Admin OR Community Creator
+    final isAdmin = user?.role == 'admin' || user?.id == widget.community.createdBy;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.community.name),
         actions: [
+          // Notification Toggle
+          IconButton(
+            icon: Icon(_notificationsEnabled ? Icons.notifications_active : Icons.notifications_off),
+            color: _notificationsEnabled ? JapaneseColors.wakatake : Colors.grey,
+            onPressed: () async {
+              setState(() => _notificationsEnabled = !_notificationsEnabled);
+              
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('notify_community_${widget.community.id}', _notificationsEnabled);
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_notificationsEnabled ? '🔔 Notifications ON' : '🔕 Notifications OFF'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadMessages,

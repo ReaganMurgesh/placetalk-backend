@@ -31,7 +31,13 @@ export class PinsService {
         // }
 
         // Step 2: Calculate expiration
-        const expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);
+        // Community pins do not expire (or set to 100 years)
+        // Normal pins expire in 72 hours
+        let expiresAt: Date | null = null;
+
+        if (data.pinCategory !== 'community') {
+            expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);
+        }
 
         // Step 3: Write to PostgreSQL (vault)
         const result = await pool.query(
