@@ -31,7 +31,7 @@ export const requireAuth = async (request: any, reply: any) => {
     if (!request.user?.userId) {
         return reply.code(401).send({
             error: 'Unauthorized',
-            message: 'Authentication required',
+            message: `Authentication required. User payload: ${JSON.stringify(request.user)}`,
         });
     }
 };
