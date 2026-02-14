@@ -200,6 +200,15 @@ const start = async () => {
 
         // Ensure Global Community exists
         const { pool } = await import('./config/database.js');
+
+        // Fix Emails (Lowercase)
+        try {
+            await pool.query("UPDATE users SET email = LOWER(email) WHERE email != LOWER(email)");
+            console.log('Sanitized user emails');
+        } catch (e) {
+            console.log('Email sanitization skipped (duplicates likely)');
+        }
+
         const globalCommunity = await pool.query("SELECT id FROM communities WHERE name = 'PlaceTalk Global'");
         if (globalCommunity.rowCount === 0) {
             await pool.query(`
