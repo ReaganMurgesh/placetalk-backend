@@ -49,10 +49,10 @@ export class DiaryService {
         const result = await pool.query(
             `SELECT ua.id, ua.user_id AS "userId", ua.pin_id AS "pinId", 
                     ua.activity_type AS "activityType", ua.metadata, ua.created_at AS "createdAt",
-                    p.title AS "pinTitle", a.name AS "pinAttribute", ST_Y(p.location::geometry) AS "pinLat", ST_X(p.location::geometry) AS "pinLon"
+                    p.title AS "pinTitle", 'Normal' AS "pinAttribute", ST_Y(p.location::geometry) AS "pinLat", ST_X(p.location::geometry) AS "pinLon"
        FROM user_activities ua
        INNER JOIN pins p ON ua.pin_id = p.id
-       LEFT JOIN attributes a ON p.attribute_id = a.id
+       -- LEFT JOIN attributes a ON p.attribute_id = a.id
        WHERE ${conditions.join(' AND ')}
        ORDER BY ua.created_at DESC
        LIMIT $${params.length}`,
@@ -171,7 +171,8 @@ export class DiaryService {
             });
         }
 
-        // Badge: Mikan Lover (3+ agriculture pins)
+        /* 
+        // Badge: Mikan Lover (Temporarily disabled due to missing schema)
         const mikanResult = await pool.query(
             `SELECT COUNT(DISTINCT ua.pin_id) as count
        FROM user_activities ua
@@ -190,7 +191,8 @@ export class DiaryService {
                 icon: '🍊',
                 earnedAt: new Date(),
             });
-        }
+        } 
+        */
 
         return badges;
     }
