@@ -1,7 +1,13 @@
 /**
  * Middleware to require admin role for protected routes
  */
-export const requireAdmin = (request: any, reply: any, done: Function) => {
+export const requireAdmin = async (request: any, reply: any) => {
+    try {
+        await request.jwtVerify();
+    } catch (err) {
+        return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid token' });
+    }
+
     const userRole = request.user?.role;
 
     if (userRole !== 'admin') {
@@ -10,20 +16,22 @@ export const requireAdmin = (request: any, reply: any, done: Function) => {
             message: 'Admin access required',
         });
     }
-
-    done();
 };
 
 /**
  * Middleware to require authenticated user (any role)
  */
-export const requireAuth = (request: any, reply: any, done: Function) => {
+export const requireAuth = async (request: any, reply: any) => {
+    try {
+        await request.jwtVerify();
+    } catch (err) {
+        return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid token' });
+    }
+
     if (!request.user?.userId) {
         return reply.code(401).send({
             error: 'Unauthorized',
             message: 'Authentication required',
         });
     }
-
-    done();
 };
