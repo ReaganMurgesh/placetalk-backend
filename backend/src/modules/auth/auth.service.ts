@@ -10,10 +10,12 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secre
 export class AuthService {
     // Register new user
     async register(data: RegisterDTO): Promise<{ user: UserResponse; tokens: AuthTokens }> {
+        const email = data.email.trim().toLowerCase();
+
         // Check if email already exists
         const existingUser = await pool.query(
             'SELECT id FROM users WHERE email = $1',
-            [data.email]
+            [email]
         );
 
         if (existingUser.rows.length > 0) {
@@ -28,7 +30,7 @@ export class AuthService {
             `INSERT INTO users (name, email, password_hash, role, home_region, country)
              VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING id, name, email, COALESCE(role, 'normal') as role, home_region, country, created_at`,
-            [data.name, data.email, passwordHash, data.role || 'normal', data.homeRegion, data.country || 'Japan']
+            [data.name, email, passwordHash, data.role || 'normal', data.homeRegion, data.country || 'Japan']
         );
 
         const user = result.rows[0];
@@ -52,13 +54,15 @@ export class AuthService {
 
     // Login user
     async login(data: LoginDTO): Promise<{ user: UserResponse; tokens: AuthTokens }> {
+        const email = data.email.trim().toLowerCase();
+
         // Find user - use COALESCE to handle NULL role
         const result = await pool.query(
             `SELECT id, name, email, password_hash, 
                     COALESCE(role, 'normal') as role, 
                     home_region, country, created_at 
              FROM users WHERE email = $1`,
-            [data.email]
+            [email]
         );
 
         if (result.rows.length === 0) {
