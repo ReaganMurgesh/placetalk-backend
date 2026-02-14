@@ -49,12 +49,14 @@ export class DiaryService {
         const result = await pool.query(
             `SELECT ua.id, ua.user_id AS "userId", ua.pin_id AS "pinId", 
                     ua.activity_type AS "activityType", ua.metadata, ua.created_at AS "createdAt",
-                    p.title AS "pinTitle", p.attribute AS "pinAttribute", p.lat AS "pinLat", p.lon AS "pinLon"
+                    p.title AS "pinTitle", a.name AS "pinAttribute", ST_Y(p.location::geometry) AS "pinLat", ST_X(p.location::geometry) AS "pinLon"
        FROM user_activities ua
        INNER JOIN pins p ON ua.pin_id = p.id
+       LEFT JOIN attributes a ON p.attribute_id = a.id
        WHERE ${conditions.join(' AND ')}
        ORDER BY ua.created_at DESC
        LIMIT $${params.length}`,
+            params
             params
         );
 
@@ -156,7 +158,7 @@ export class DiaryService {
        FROM user_activities ua
        INNER JOIN pins p ON ua.pin_id = p.id
        WHERE ua.user_id = $1 
-         AND p.geohash LIKE 'wv%'`,  // Amakusa region geohash prefix
+         AND ST_GeoHash(p.location::geometry, 5) LIKE 'wv%'`,  // Amakusa region geohash prefix
             [userId]
         );
 
@@ -175,8 +177,9 @@ export class DiaryService {
             `SELECT COUNT(DISTINCT ua.pin_id) as count
        FROM user_activities ua
        INNER JOIN pins p ON ua.pin_id = p.id
+       LEFT JOIN attributes a ON p.attribute_id = a.id
        WHERE ua.user_id = $1 
-         AND p.attribute = 'agriculture'`,
+         AND a.name = 'agriculture'`,
             [userId]
         );
 

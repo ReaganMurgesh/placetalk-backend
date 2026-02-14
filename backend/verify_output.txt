@@ -1,0 +1,17 @@
+--- Verification Start ---
+Checking Node version: v22.14.0
+1. Health Check...
+Health Status: 200
+Server Timestamp: 2026-02-14T09:58:12.820Z
+Server Age: 0.0 minutes
+
+2. Registering verify_1771063093453@test.com...
+Register Success. Token obtained.
+
+3. Testing Community (Joined)...
+Community Status: 401
+Community Body: {"error":"Unauthorized","message":"Authentication required"}
+
+4. Testing Diary (Stats)...
+Diary Status: 401
+Diary Body: {"error":"Unauthorized","message":"Authentication required"}
