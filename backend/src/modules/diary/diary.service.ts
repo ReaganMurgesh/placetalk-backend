@@ -57,7 +57,6 @@ export class DiaryService {
        ORDER BY ua.created_at DESC
        LIMIT $${params.length}`,
             params
-            params
         );
 
         return result.rows;
