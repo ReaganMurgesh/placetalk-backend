@@ -2,7 +2,7 @@ export interface UserActivity {
     id: string;
     userId: string;
     pinId: string;
-    activityType: 'visited' | 'liked' | 'commented' | 'created';
+    activityType: 'visited' | 'liked' | 'commented' | 'created' | 'reported' | 'hidden';
     metadata?: Record<string, any>;
     createdAt: Date;
 }

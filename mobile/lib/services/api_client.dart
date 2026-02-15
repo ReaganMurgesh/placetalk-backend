@@ -187,6 +187,15 @@ class ApiClient {
     return response.data;
   }
 
+  Future<Map<String, dynamic>> reportPin(String pinId) async {
+    final response = await _dio.post('/pins/$pinId/report');
+    return response.data;
+  }
+
+  Future<void> hidePin(String pinId) async {
+    await _dio.post('/pins/$pinId/hide');
+  }
+
   // ========== SERENDIPITY: Pin Interactions ==========
 
   /// Mark pin as "Good" (7-day cooldown timer)

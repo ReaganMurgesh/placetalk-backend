@@ -8,7 +8,7 @@ export class DiaryService {
     async logActivity(
         userId: string,
         pinId: string,
-        activityType: 'visited' | 'liked' | 'commented' | 'created',
+        activityType: 'visited' | 'liked' | 'commented' | 'created' | 'reported' | 'hidden',
         metadata?: Record<string, any>
     ): Promise<UserActivity> {
         const result = await pool.query(

@@ -13,10 +13,9 @@ final diaryStatsProvider = FutureProvider<UserStats>((ref) async {
   return UserStats.fromJson(statsJson);
 });
 
-final diaryTimelineProvider = FutureProvider<List<TimelineEntry>>((ref) async {
+final myPinsProvider = FutureProvider<List<Pin>>((ref) async {
   final apiClient = ref.watch(apiClientProvider);
-  final timelineJson = await apiClient.getDiaryTimeline();
-  return timelineJson.map((json) => TimelineEntry.fromJson(json)).toList();
+  return apiClient.getMyPins();
 });
 
 class DiaryScreen extends ConsumerWidget {
@@ -25,90 +24,139 @@ class DiaryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(diaryStatsProvider);
-    final timelineAsync = ref.watch(diaryTimelineProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Serendipity Diary'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.invalidate(diaryStatsProvider);
-              ref.invalidate(diaryTimelineProvider);
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Stats header
-          statsAsync.when(
-            data: (stats) => _StatsHeader(stats: stats),
-            loading:() => const LinearProgressIndicator(),
-            error: (error, stack) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Error loading stats', style: TextStyle(color: Colors.red)),
-            ),
-          ),
-          const Divider(),
-          // Timeline
-          Expanded(
-            child: timelineAsync.when(
-              data: (timeline) {
-                if (timeline.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.explore_outlined, size: 64, color: Colors.grey[400]),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No activities yet',
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Explore pins to start your journey',
-                          style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: timeline.length,
-                  itemBuilder: (context, index) {
-                    return _TimelineCard(
-                      entry: timeline[index],
-                      isFirst: index == 0,
-                      isLast: index == timeline.length - 1,
-                    );
-                  },
-                );
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('My Serendipity Diary'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                ref.invalidate(diaryStatsProvider);
+                ref.invalidate(diaryTimelineProvider);
+                ref.invalidate(myPinsProvider);
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stack) => Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                    const SizedBox(height: 16),
-                    Text('Error: $error'),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => ref.refresh(diaryTimelineProvider),
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
+            ),
+          ],
+          bottom: const TabBar(
+            indicatorColor: JapaneseColors.toriiRed,
+            labelColor: JapaneseColors.toriiRed,
+            unselectedLabelColor: Colors.grey,
+            tabs: [
+              Tab(icon: Icon(Icons.history), text: 'Passed Pins'),
+              Tab(icon: Icon(Icons.place), text: 'My Pins'),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            // Stats header (Always visible)
+            statsAsync.when(
+              data: (stats) => _StatsHeader(stats: stats),
+              loading:() => const LinearProgressIndicator(),
+              error: (error, stack) => Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Error loading stats', style: TextStyle(color: Colors.red)),
               ),
             ),
-          ),
-        ],
+            const Divider(height: 1),
+            // Tab Views
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _ExploredTab(),
+                  _MyPinsTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _ExploredTab extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final timelineAsync = ref.watch(diaryTimelineProvider);
+
+    return timelineAsync.when(
+      data: (timeline) {
+        if (timeline.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.explore_outlined, size: 60, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text('No adventures yet.', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+              ],
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: timeline.length,
+          itemBuilder: (context, index) {
+            return _TimelineCard(
+              entry: timeline[index],
+              isFirst: index == 0,
+              isLast: index == timeline.length - 1,
+            );
+          },
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, st) => Center(child: Text('Error: $e')),
+    );
+  }
+}
+
+class _MyPinsTab extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final myPinsAsync = ref.watch(myPinsProvider);
+
+    return myPinsAsync.when(
+      data: (pins) {
+        if (pins.isEmpty) {
+          return const Center(child: Text('You haven\'t created any pins yet.'));
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: pins.length,
+          itemBuilder: (context, index) {
+            final pin = pins[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                leading: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: pin.pinCategory == 'community' ? Colors.orange.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    pin.pinCategory == 'community' ? Icons.groups : Icons.place,
+                    color: pin.pinCategory == 'community' ? Colors.orange : Colors.green,
+                  ),
+                ),
+                title: Text(pin.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('Likes: ${pin.likeCount} • Dislikes: ${pin.dislikeCount}'),
+                trailing: pin.pinCategory == 'community' 
+                    ? const Chip(label: Text('Infinite'), backgroundColor: Colors.orangeAccent, labelStyle: TextStyle(fontSize: 10))
+                    : const Chip(label: Text('Active'), backgroundColor: Colors.greenAccent, labelStyle: TextStyle(fontSize: 10)),
+              ),
+            );
+          },
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, st) => Center(child: Text('Error: $e')),
     );
   }
 }

@@ -65,6 +65,7 @@ dependencies:
   # Utilities
   intl: ^0.18.1
   uuid: ^4.3.3
+  flutter_polyline_points: ^3.1.0
 
 dev_dependencies:
   flutter_test:

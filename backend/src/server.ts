@@ -127,18 +127,39 @@ fastify.get('/migrate-social', async (request, reply) => {
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                 user_id UUID REFERENCES users(id) ON DELETE CASCADE,
                 pin_id UUID REFERENCES pins(id) ON DELETE CASCADE,
-                activity_type VARCHAR(20) NOT NULL CHECK (activity_type IN ('visited', 'liked', 'commented', 'created')),
+                activity_type VARCHAR(20) NOT NULL, -- visited, liked, commented, created, reported, hidden
                 metadata JSONB DEFAULT '{}',
                 created_at TIMESTAMP DEFAULT NOW()
             );
             CREATE INDEX IF NOT EXISTS idx_activities_user_date ON user_activities(user_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS user_pin_interactions (
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                pin_id UUID NOT NULL REFERENCES pins(id) ON DELETE CASCADE,
+                is_good BOOLEAN DEFAULT FALSE,
+                is_bad BOOLEAN DEFAULT FALSE,
+                is_muted BOOLEAN DEFAULT FALSE,
+                last_interaction_at TIMESTAMP DEFAULT NOW(),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (user_id, pin_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS message_reactions (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                message_id UUID NOT NULL REFERENCES community_messages(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                emoji VARCHAR(10) NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(message_id, user_id, emoji)
+            );
         `);
 
         return {
             success: true,
-            message: 'Deep migration fix completed!',
+            message: 'Deep migration fix completed! All tables created.',
             logs: logs,
-            tables: ['communities', 'community_members', 'community_messages', 'user_activities']
+            tables: ['communities', 'community_members', 'community_messages', 'user_activities', 'user_pin_interactions', 'message_reactions']
         };
     } catch (error: any) {
         fastify.log.error(error);
@@ -255,7 +276,8 @@ const start = async () => {
     - GET  /pins/:id              Get pin by ID
     - GET  /pins/my/pins          Get user's pins
     - POST /pins/:id/like         Like a pin
-    - POST /pins/:id/dislike      Dislike a pin
+    - POST /pins/:id/report       Report a pin (was dislike)
+    - POST /pins/:id/hide         Hide a pin (personal)
     
     Ready to discover serendipity! 🎲
     `);

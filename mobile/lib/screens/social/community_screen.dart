@@ -278,7 +278,7 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
                         },
                       ),
           ),
-          // Post message (admin only)
+          // Post message input (Visible to Admin only)
           if (isAdmin)
             Container(
               padding: const EdgeInsets.all(16),

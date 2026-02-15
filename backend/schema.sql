@@ -85,6 +85,75 @@ CREATE INDEX IF NOT EXISTS idx_discoveries_user ON discoveries (user_id);
 CREATE INDEX IF NOT EXISTS idx_discoveries_pin ON discoveries (pin_id);
 
 -- ============================================================
+-- USER PIN INTERACTIONS (Serendipity)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_pin_interactions (
+    user_id UUID NOT NULL REFERENCES users(id),
+    pin_id UUID NOT NULL REFERENCES pins(id),
+    is_good BOOLEAN DEFAULT FALSE,
+    is_bad BOOLEAN DEFAULT FALSE,
+    is_muted BOOLEAN DEFAULT FALSE,
+    last_interaction_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (user_id, pin_id)
+);
+
+-- ============================================================
+-- COMMUNITIES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS communities (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_by UUID NOT NULL REFERENCES users(id),
+    image_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS community_members (
+    community_id UUID NOT NULL REFERENCES communities(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('member', 'admin')),
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (community_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS community_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID NOT NULL REFERENCES communities(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    content TEXT NOT NULL,
+    image_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS message_reactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    message_id UUID NOT NULL REFERENCES community_messages(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    emoji VARCHAR(10) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(message_id, user_id, emoji)
+);
+
+-- ============================================================
+-- USER ACTIVITIES (Diary)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_activities (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    pin_id UUID REFERENCES pins(id),
+    activity_type VARCHAR(20) NOT NULL, -- visited, liked, commented, created, reported, hidden
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_activities_user ON user_activities (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_activities_created_at ON user_activities (created_at);
+
+-- ============================================================
 -- HELPFUL VIEWS
 -- ============================================================
 CREATE OR REPLACE VIEW active_pins AS

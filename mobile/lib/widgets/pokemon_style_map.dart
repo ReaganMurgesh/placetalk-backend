@@ -14,6 +14,7 @@ import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/models/community.dart';
 import 'package:placetalk/screens/social/community_screen.dart';
 import 'package:placetalk/theme/japanese_theme.dart';
+import 'package:placetalk/services/navigation_service.dart';
 
 /// ==========================================================
 /// POKÉMON GO STYLE MAP
@@ -63,6 +64,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   late AnimationController _bounceCtrl;
   late Animation<double> _pulseAnim;
   late Animation<double> _bounceAnim;
+  
+  // Navigation State
+  final NavigationService _navService = NavigationService();
+  List<LatLng> _navigationPath = [];
+  Pin? _navTargetPin;
+  bool _isNavigating = false;
+  bool _isFetchingRoute = false;
 
   @override
   void initState() {
@@ -152,14 +160,25 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         if (!mounted) return;
         _onNewPosition(pos);
         
-        // 20m threshold → heartbeat to backend
+          // 15m threshold (Minimalist Rule) → heartbeat to backend
         if (_lastHeartbeatPos != null) {
           final moved = Geolocator.distanceBetween(
             _lastHeartbeatPos!.latitude, _lastHeartbeatPos!.longitude,
             pos.latitude, pos.longitude,
           );
-          if (moved >= 20.0) {
+          if (moved >= 15.0) {
             _triggerHeartbeat(pos);
+          }
+        }
+
+        // Navigation Arrival Check (< 5m)
+        if (_isNavigating && _navTargetPin != null) {
+          final distToTarget = Geolocator.distanceBetween(
+            pos.latitude, pos.longitude,
+            _navTargetPin!.lat, _navTargetPin!.lon,
+          );
+          if (distToTarget < 5.0) {
+            _handleArrival(_navTargetPin!);
           }
         }
       },
@@ -243,6 +262,82 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   }
 
   // ──────────────────────────────────────────────
+  // NAVIGATION LOGIC
+  // ──────────────────────────────────────────────
+  Future<void> _startNavigation(Pin pin) async {
+    if (_userPosition == null) return;
+    
+    setState(() {
+      _isFetchingRoute = true;
+      _navTargetPin = pin;
+    });
+    
+    // Fetch route
+    final route = await _navService.getRoute(
+      _userPosition!,
+      LatLng(pin.lat, pin.lon),
+    );
+    
+    if (mounted) {
+      setState(() {
+        _navigationPath = route;
+        _isNavigating = true;
+        _isFetchingRoute = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🗺️ Path found! Let\'s go!'), backgroundColor: Colors.cyan),
+      );
+    }
+  }
+
+  void _stopNavigation() {
+    setState(() {
+      _isNavigating = false;
+      _navigationPath = [];
+      _navTargetPin = null;
+    });
+  }
+
+  Future<void> _handleArrival(Pin pin) async {
+    _stopNavigation();
+    
+    // Show Success Animation
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 60),
+            const SizedBox(height: 16),
+            const Text('You Arrived!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('You discovered "${pin.title}"!', textAlign: TextAlign.center),
+          ],
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Awesome!'),
+            onPressed: () => Navigator.pop(context),
+          )
+        ],
+      ),
+    );
+    
+    // Notify Backend (Log Accomplishment)
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.logActivity(pin.id, 'visited', metadata: {'source': 'navigation'});
+      print('✅ Visited "${pin.title}" logged!');
+    } catch (e) {
+      print('❌ Failed to log visit: $e');
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // BUILD
   // ──────────────────────────────────────────────
   @override
@@ -289,6 +384,22 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 userAgentPackageName: 'com.placetalk.app',
                 maxZoom: 19,
               ),
+              
+              // Navigation Polyline (Neon Path)
+              if (_navigationPath.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _navigationPath,
+                      strokeWidth: 6.0,
+                      color: Colors.cyanAccent.withOpacity(0.8),
+                      borderColor: Colors.blueAccent,
+                      borderStrokeWidth: 2.0,
+                    ),
+                  ],
+                ),
+              
+              // Pin markers on actual map coordinates
               
               // Pin markers on actual map coordinates
               if (_userPosition != null)
@@ -468,89 +579,82 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           pin.lat, pin.lon,
         );
         final isInRange = dist <= 50;
-        final color = pin.pinCategory == 'community'
+        
+        // Minimalist Visual Rules
+        final isHidden = pin.isHidden ?? false;
+        final isDeprioritized = pin.isDeprioritized ?? false;
+        
+        // Base Color
+        Color color = pin.pinCategory == 'community'
             ? const Color(0xFFFF9800) // Orange
             : (pin.type == 'sensation' ? const Color(0xFF9C27B0) : const Color(0xFF4CAF50));
+            
+        // Deprioritized overrides color to dark grey
+        if (isDeprioritized) {
+          color = Colors.blueGrey;
+        }
+
+        // Opacity Rule
+        final double opacity = isHidden ? 0.3 : (isDeprioritized ? 0.5 : 1.0);
+        
+        // Size Rule
+        final double size = isDeprioritized ? 40.0 : 60.0;
 
         return Marker(
           point: LatLng(pin.lat, pin.lon),
-          width: 60,
-          height: 80,
-          child: GestureDetector(
-            onTap: () {
-              // SERENDIPITY: Check if pin is muted
-              final interaction = ref.read(discoveryProvider).pinInteractions[pin.id];
-              final isMuted = interaction?.isMuted ?? false;
-              
-              if (isMuted) {
-                // Tap muted pin → unmute instantly
-                ref.read(discoveryProvider.notifier).unmutePinLocally(pin.id);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('✅ "${pin.title}" unmuted'),
-                    duration: const Duration(seconds: 2),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else {
+          width: size,
+          height: size + 20, // Add space for badge
+          child: Opacity(
+            opacity: opacity,
+            child: GestureDetector(
+              onTap: () {
+                // If hidden, tapping opens sheet where you can unhide (future) or just view details
                 _showPinSheet(pin, dist);
-              }
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Distance badge (shows mute icon if muted)
-                Builder(
-                  builder: (ctx) {
-                    final interaction = ref.watch(discoveryProvider).pinInteractions[pin.id];
-                    final isMuted = interaction?.isMuted ?? false;
-                    final badgeColor = isMuted ? Colors.grey.withOpacity(0.6) : (isInRange ? color : Colors.grey[400]!);
-                    
-                    return Container(
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Distance badge (Hide if deprioritized/hidden to reduce clutter?)
+                  // Showing it for now but simplified
+                  if (!isDeprioritized)
+                    Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: badgeColor,
+                        color: isInRange ? color : Colors.grey[400],
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        isMuted ? '🔇' : '${dist.toInt()}m',
+                        isHidden ? 'Hidden' : '${dist.toInt()}m',
                         style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 2),
-                // Pin icon (greyed if muted)
-                Builder(
-                  builder: (ctx) {
-                    final interaction = ref.watch(discoveryProvider).pinInteractions[pin.id];
-                    final isMuted = interaction?.isMuted ?? false;
-                    final markerColor = isMuted ? Colors.grey.withOpacity(0.5) : (isInRange ? color : Colors.grey[400]!);
-                    
-                    return Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: markerColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
-                        boxShadow: isInRange && !isMuted
-                            ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)]
-                            : null,
-                      ),
-                      child: Icon(
-                        isMuted 
-                            ? Icons.volume_off 
-                            : (pin.pinCategory == 'community' 
-                                ? Icons.groups 
-                                : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place)),
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  
+                  const SizedBox(height: 2),
+                  
+                  // Pin icon
+                  Container(
+                    width: isDeprioritized ? 30 : 38,
+                    height: isDeprioritized ? 30 : 38,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: isDeprioritized ? 1.5 : 3),
+                      boxShadow: isInRange && !isHidden && !isDeprioritized
+                          ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)]
+                          : null,
+                    ),
+                    child: Icon(
+                      isHidden 
+                          ? Icons.visibility_off 
+                          : (pin.pinCategory == 'community' 
+                              ? Icons.groups 
+                              : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place)),
+                      color: Colors.white,
+                      size: isDeprioritized ? 16 : 20,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -752,29 +856,86 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               Text(pin.details!, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
             ],
             const SizedBox(height: 16),
-            // Like/Dislike
-            Row(children: [
-              Expanded(child: OutlinedButton.icon(
-                onPressed: () async {
-                  await ref.read(discoveryProvider.notifier).likePin(pin.id);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-                icon: const Icon(Icons.thumb_up, color: Color(0xFF4CAF50)),
-                label: Text('Like (${pin.likeCount})', style: const TextStyle(color: Color(0xFF4CAF50))),
-                style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF4CAF50)), padding: const EdgeInsets.symmetric(vertical: 12)),
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: OutlinedButton.icon(
-                onPressed: () async {
-                  await ref.read(discoveryProvider.notifier).dislikePin(pin.id);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-                icon: const Icon(Icons.thumb_down, color: Colors.red),
-                label: Text('Dislike (${pin.dislikeCount})', style: const TextStyle(color: Colors.red)),
-                label: Text('Dislike (${pin.dislikeCount})', style: const TextStyle(color: Colors.red)),
-                style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 12)),
-              )),
-            ]),
+             // Like/Dislike
+             // Minimalist Actions: Like | Hide | Report
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // LIKE
+                _actionBtn(
+                  icon: Icons.thumb_up,
+                  label: 'Like (${pin.likeCount})',
+                  color: Colors.green,
+                  onTap: () async {
+                    try {
+                      await ref.read(apiClientProvider).likePin(pin.id);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Liked!'), backgroundColor: Colors.green));
+                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                      }
+                    } catch (_) {}
+                  },
+                ),
+                // HIDE (Personal)
+                _actionBtn(
+                  icon: Icons.visibility_off,
+                  label: 'Hide',
+                  color: Colors.grey,
+                  onTap: () async {
+                    try {
+                      await ref.read(apiClientProvider).hidePin(pin.id);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pin Hidden (Personal)')));
+                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                      }
+                    } catch (_) {}
+                  },
+                ),
+                // REPORT (Global)
+                _actionBtn(
+                  icon: Icons.flag,
+                  label: 'Report',
+                  color: Colors.redAccent,
+                  onTap: () async {
+                    try {
+                      await ref.read(apiClientProvider).reportPin(pin.id);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reported to Community'), backgroundColor: Colors.redAccent));
+                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                      }
+                    } catch (_) {}
+                  },
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // "Let's Explore" Navigation Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isNavigating && _navTargetPin?.id == pin.id 
+                    ? _stopNavigation 
+                    : () {
+                        Navigator.pop(ctx);
+                        _startNavigation(pin);
+                      },
+                icon: Icon(_isNavigating && _navTargetPin?.id == pin.id ? Icons.stop : Icons.directions_walk, color: Colors.white),
+                label: Text(
+                  _isNavigating && _navTargetPin?.id == pin.id ? 'Stop Navigation' : "Let's Explore",
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isNavigating && _navTargetPin?.id == pin.id ? Colors.red : Colors.cyan,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
             
             // Community Join Button (Only for Community Pins)
             if (pin.pinCategory == 'community') ...[
@@ -821,6 +982,33 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _actionBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: color, width: 2),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+        ],
       ),
     );
   }

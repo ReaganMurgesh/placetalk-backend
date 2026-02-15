@@ -47,6 +47,10 @@ class TimelineEntry {
         return '💬';
       case 'created':
         return '✨';
+      case 'reported':
+        return '🚩';
+      case 'hidden':
+        return '🙈';
       default:
         return '📍';
     }
@@ -55,13 +59,17 @@ class TimelineEntry {
   String get activityLabel {
     switch (activityType) {
       case 'visited':
-        return 'Visited';
+        return 'Passed By';
       case 'liked':
         return 'Liked';
       case 'commented':
         return 'Commented on';
       case 'created':
         return 'Created';
+      case 'reported':
+        return 'Reported';
+      case 'hidden':
+        return 'Hidden';
       default:
         return 'Interacted with';
     }

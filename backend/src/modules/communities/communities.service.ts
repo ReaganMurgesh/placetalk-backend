@@ -48,6 +48,21 @@ export class CommunitiesService {
     }
 
     /**
+     * Get community by ID
+     */
+    async getCommunityById(communityId: string): Promise<Community | null> {
+        const result = await pool.query(
+            `SELECT id, name, description, image_url AS "imageUrl", 
+                    created_by AS "createdBy", created_at AS "createdAt"
+             FROM communities 
+             WHERE id = $1`,
+            [communityId]
+        );
+
+        return result.rows[0] || null;
+    }
+
+    /**
      * Get all communities user has joined
      */
     async getUserCommunities(userId: string): Promise<Community[]> {

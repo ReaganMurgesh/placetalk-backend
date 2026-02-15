@@ -104,11 +104,22 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Body: PostMessageDTO }>(
         '/:communityId/messages',
-        { preHandler: requireAdmin },
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const { communityId } = request.params;
                 const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userRole = request.user?.role;
+
+                // Check permissions (Admin OR Community Creator)
+                const community = await communitiesService.getCommunityById(communityId);
+                if (!community) {
+                    return reply.code(404).send({ error: 'Community not found' });
+                }
+
+                if (community.createdBy !== userId && userRole !== 'admin') {
+                    return reply.code(403).send({ error: 'Only the Community Admin can post updates.' });
+                }
 
                 const message = await communitiesService.postMessage(
                     communityId,

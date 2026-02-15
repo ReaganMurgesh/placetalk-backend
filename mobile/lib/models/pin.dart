@@ -14,6 +14,8 @@ class Pin {
   final int dislikeCount;
   final DateTime createdAt;
   final double? distance;
+  final bool? isHidden;
+  final bool? isDeprioritized;
 
   Pin({
     required this.id,
@@ -31,6 +33,8 @@ class Pin {
     required this.dislikeCount,
     required this.createdAt,
     this.distance,
+    this.isHidden,
+    this.isDeprioritized,
   });
 
   static double _parseDouble(dynamic value) {
@@ -59,6 +63,8 @@ class Pin {
       dislikeCount: (json['dislikeCount'] ?? json['dislike_count']) as int? ?? 0,
       createdAt: DateTime.tryParse((json['createdAt'] ?? json['created_at'] ?? '').toString()) ?? DateTime.now(),
       distance: json['distance'] != null ? _parseDouble(json['distance']) : null,
+      isHidden: json['isHidden'] as bool?,
+      isDeprioritized: json['isDeprioritized'] as bool?,
     );
   }
 

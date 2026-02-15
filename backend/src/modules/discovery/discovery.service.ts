@@ -20,7 +20,7 @@ export class DiscoveryService {
     ): Promise<DiscoveryResponse> {
         try {
             // Direct PostgreSQL query with PostGIS
-            const discoveredPins = await this.queryNearbyPinsPostGIS(lat, lon);
+            const discoveredPins = await this.queryNearbyPinsPostGIS(lat, lon, userId);
 
             // Log discoveries for analytics
             for (const pin of discoveredPins) {
@@ -46,61 +46,78 @@ export class DiscoveryService {
      */
     private async queryNearbyPinsPostGIS(
         userLat: number,
-        userLon: number
+        userLon: number,
+        userId: string
     ): Promise<DiscoveredPin[]> {
         const currentTime = new Date().toTimeString().slice(0, 5); // "HH:MM"
 
         const result = await pool.query(
             `
       SELECT 
-        id,
-        title,
-        directions,
-        details,
-        type,
-        pin_category,
-        attribute_id,
-        created_by,
-        ST_Y(location::geometry) AS lat,
-        ST_X(location::geometry) AS lon,
+        p.id,
+        p.title,
+        p.directions,
+        p.details,
+        p.type,
+        p.pin_category,
+        p.attribute_id,
+        p.created_by,
+        p.like_count AS "likeCount",
+        p.dislike_count AS "reportCount",
+        ST_Y(p.location::geometry) AS lat,
+        ST_X(p.location::geometry) AS lon,
         ST_Distance(
-          location::geography,
+          p.location::geography,
           ST_MakePoint($1, $2)::geography
-        ) AS distance
-      FROM pins
-      WHERE expires_at > NOW()
+        ) AS distance,
+        COALESCE(upi.is_muted, FALSE) AS "isHidden"
+      FROM pins p
+      LEFT JOIN user_pin_interactions upi ON p.id = upi.pin_id AND upi.user_id = $5
+      WHERE p.expires_at > NOW()
         AND (
-          visible_from IS NULL 
-          OR visible_to IS NULL 
-          OR (CAST($3 AS TIME) >= visible_from AND CAST($3 AS TIME) <= visible_to)
+          p.visible_from IS NULL 
+          OR p.visible_to IS NULL 
+          OR (CAST($3 AS TIME) >= p.visible_from AND CAST($3 AS TIME) <= p.visible_to)
         )
         AND ST_Distance(
-          location::geography,
+          p.location::geography,
           ST_MakePoint($1, $2)::geography
         ) < $4
       ORDER BY distance ASC
       `,
-            [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS]
+            [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS, userId]
         );
 
-        return result.rows.map((row) => ({
-            id: row.id,
-            title: row.title,
-            directions: row.directions,
-            details: row.details,
-            lat: row.lat,
-            lon: row.lon,
-            distance: Math.round(row.distance),
-            type: row.type,
-            pinCategory: row.pin_category,
-            attributeId: row.attribute_id,
-            createdBy: row.created_by,
-        }));
+        return result.rows.map((row) => {
+            const likeCount = parseInt(row.likeCount) || 0;
+            const reportCount = parseInt(row.reportCount) || 0;
+
+            // Global Visibility Rule: Deprioritize if Likes < (Reports * 0.5)
+            // (Only if there are actual reports)
+            const isDeprioritized = reportCount > 0 && likeCount < (reportCount * 0.5);
+
+            return {
+                id: row.id,
+                title: row.title,
+                directions: row.directions,
+                details: row.details,
+                lat: row.lat,
+                lon: row.lon,
+                distance: Math.round(row.distance),
+                type: row.type,
+                pinCategory: row.pin_category,
+                attributeId: row.attribute_id,
+                createdBy: row.created_by,
+                isHidden: row.isHidden,
+                isDeprioritized: isDeprioritized,
+            };
+        });
     }
 
 
     /**
      * Log discovery for analytics
+     * AND log to user_activities for Diary "Passed Pins"
      */
     private async logDiscovery(
         userId: string,
@@ -108,12 +125,23 @@ export class DiscoveryService {
         distance: number
     ): Promise<void> {
         try {
-            await pool.query(
+            // 1. Log to discoveries (Unique per user+pin)
+            const result = await pool.query(
                 `INSERT INTO discoveries (user_id, pin_id, distance_meters)
          VALUES ($1, $2, $3)
          ON CONFLICT DO NOTHING`,
                 [userId, pinId, Math.round(distance)]
             );
+
+            // 2. If new discovery, log to user_activities (Diary)
+            // result.rowCount > 0 means a row was inserted (it was new)
+            if ((result.rowCount || 0) > 0) {
+                await pool.query(
+                    `INSERT INTO user_activities (user_id, pin_id, activity_type, metadata)
+           VALUES ($1, $2, 'visited', $3)`,
+                    [userId, pinId, JSON.stringify({ distance: Math.round(distance) })]
+                );
+            }
         } catch (error) {
             console.error('Failed to log discovery:', error);
             // Non-critical, continue
