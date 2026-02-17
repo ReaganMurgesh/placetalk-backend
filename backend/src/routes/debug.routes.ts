@@ -9,9 +9,11 @@ export async function debugRoutes(fastify: FastifyInstance) {
         try {
             console.log('🚨 DEBUG: Clearing ALL pins from database');
             
-            // Clear all data
+            // Clear all data in correct order (foreign keys)
             await pool.query('DELETE FROM user_activities');
+            await pool.query('DELETE FROM user_pin_interactions');
             await pool.query('DELETE FROM pin_interactions');
+            await pool.query('DELETE FROM discoveries');
             await pool.query('DELETE FROM pins');
             
             // Check what's left
@@ -25,9 +27,9 @@ export async function debugRoutes(fastify: FastifyInstance) {
                 message: 'All pins cleared successfully',
                 remainingPins: remainingPins
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error('❌ DEBUG: Error clearing pins:', error);
-            return reply.code(500).send({ error: 'Failed to clear pins' });
+            return reply.code(500).send({ error: 'Failed to clear pins', details: error.message });
         }
     });
     
