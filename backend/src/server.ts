@@ -49,6 +49,7 @@ fastify.get('/health', async () => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
+        version: '2.2-debug'
     };
 });
 
