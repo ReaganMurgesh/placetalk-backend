@@ -3,12 +3,12 @@ class ApiConfig {
   // Your WiFi IP — phone and computer must be on the same WiFi
   // Find your IP: Windows → ipconfig → "Wireless LAN adapter Wi-Fi" → IPv4
   // Production cloud URL (Render deployment)
-  // static const String baseUrl = 'https://placetalk-backend-1.onrender.com'; // Production
+  static const String baseUrl = 'https://placetalk-backend-1.onrender.com'; // Production
   
   // For Android Emulator use: http://10.0.2.2:3000
   // For iOS Simulator use: http://localhost:3000
   // For Real Device use: http://YOUR_WIFI_IP:3000
-  static const String baseUrl = 'http://10.0.2.2:3000'; // Local testing
+  // static const String baseUrl = 'http://10.0.2.2:3000'; // Local testing
   
   // Auth
   static const String authRegister = '/auth/register';

@@ -10,10 +10,13 @@ export async function debugRoutes(fastify: FastifyInstance) {
             console.log('🚨 DEBUG: Clearing ALL pins from database');
             
             // Clear all data in correct order (foreign keys)
+            // Order matters: child tables first, then parent
             await pool.query('DELETE FROM user_activities');
             await pool.query('DELETE FROM user_pin_interactions');
             await pool.query('DELETE FROM pin_interactions');
             await pool.query('DELETE FROM discoveries');
+            await pool.query('DELETE FROM interactions');
+            await pool.query('DELETE FROM diary_entries');
             await pool.query('DELETE FROM pins');
             
             // Check what's left
