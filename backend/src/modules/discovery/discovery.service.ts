@@ -47,6 +47,7 @@ export class DiscoveryService {
     /**
      * Direct PostGIS query for nearby pins
      * FIXED: Include community pins (no expiration) AND normal active pins
+     * SIMPLIFIED: Removed user_pin_interactions join for reliability
      */
     private async queryNearbyPinsPostGIS(
         userLat: number,
@@ -55,10 +56,11 @@ export class DiscoveryService {
     ): Promise<DiscoveredPin[]> {
         const currentTime = new Date().toTimeString().slice(0, 5); // "HH:MM"
 
-        console.log(`🔍 Querying pins within ${DISCOVERY_RADIUS_METERS}m...`);
+        console.log(`🔍 Querying pins within ${DISCOVERY_RADIUS_METERS}m at (${userLat}, ${userLon})...`);
 
-        const result = await pool.query(
-            `
+        try {
+            const result = await pool.query(
+                `
       SELECT 
         p.id,
         p.title,
@@ -75,10 +77,8 @@ export class DiscoveryService {
         ST_Distance(
           p.location::geography,
           ST_MakePoint($1, $2)::geography
-        ) AS distance,
-        COALESCE(upi.is_muted, FALSE) AS "isHidden"
+        ) AS distance
       FROM pins p
-      LEFT JOIN user_pin_interactions upi ON p.id = upi.pin_id AND upi.user_id = $5
       WHERE p.is_deleted = FALSE
         AND (
           p.expires_at IS NULL          -- Community pins never expire
@@ -96,38 +96,42 @@ export class DiscoveryService {
         )
       ORDER BY distance ASC
       `,
-            [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS, userId]
-        );
+                [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS]
+            );
 
-        console.log(`📊 Database returned ${result.rows.length} pins`);
-        
-        result.rows.forEach((row, i) => {
-            console.log(`  📍 ${i+1}. "${row.title}" (${row.pin_category}) - ${Math.round(row.distance)}m - by: ${row.created_by}`);
-        });
+            console.log(`📊 Database returned ${result.rows.length} pins`);
+            
+            result.rows.forEach((row, i) => {
+                console.log(`  📍 ${i+1}. "${row.title}" (${row.pin_category}) - ${Math.round(row.distance)}m - by: ${row.created_by}`);
+            });
 
-        return result.rows.map((row) => {
-            const likeCount = parseInt(row.likeCount) || 0;
-            const reportCount = parseInt(row.reportCount) || 0;
+            return result.rows.map((row) => {
+                const likeCount = parseInt(row.likeCount) || 0;
+                const reportCount = parseInt(row.reportCount) || 0;
 
-            // Global Visibility Rule: Deprioritize if Likes < (Reports * 0.5)
-            const isDeprioritized = reportCount > 0 && likeCount < (reportCount * 0.5);
+                // Global Visibility Rule: Deprioritize if Likes < (Reports * 0.5)
+                const isDeprioritized = reportCount > 0 && likeCount < (reportCount * 0.5);
 
-            return {
-                id: row.id,
-                title: row.title,
-                directions: row.directions,
-                details: row.details,
-                lat: row.lat,
-                lon: row.lon,
-                distance: Math.round(row.distance),
-                type: row.type,
-                pinCategory: row.pin_category,
-                attributeId: row.attribute_id,
-                createdBy: row.created_by,
-                isHidden: row.isHidden,
-                isDeprioritized: isDeprioritized,
-            };
-        });
+                return {
+                    id: row.id,
+                    title: row.title,
+                    directions: row.directions,
+                    details: row.details,
+                    lat: row.lat,
+                    lon: row.lon,
+                    distance: Math.round(row.distance),
+                    type: row.type,
+                    pinCategory: row.pin_category,
+                    attributeId: row.attribute_id,
+                    createdBy: row.created_by,
+                    isHidden: false, // Simplified - no muting for now
+                    isDeprioritized: isDeprioritized,
+                };
+            });
+        } catch (error) {
+            console.error('❌ Discovery query failed:', error);
+            throw error;
+        }
     }
 
 

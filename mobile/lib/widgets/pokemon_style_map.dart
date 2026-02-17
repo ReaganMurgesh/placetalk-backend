@@ -541,37 +541,67 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     // Use discoveredPins from heartbeat/loadNearbyPins
     final discoveredPins = state.discoveredPins;
     
-    if (discoveredPins.isEmpty) return const SizedBox();
+    // Also get user's own created pins - these should ALWAYS show on map!
+    final userCreatedPins = state.createdPins;
     
-    var nearbyPins = discoveredPins.where((pin) {
+    // Merge: nearby discovered pins + all user's own pins
+    final nearbyDiscovered = discoveredPins.where((pin) {
       final dist = Geolocator.distanceBetween(
         _userPosition!.latitude, _userPosition!.longitude,
         pin.lat, pin.lon,
       );
       return dist <= 50; // Show within 50m on map
     }).toList();
+    
+    // Combine with user's created pins (always visible regardless of distance)
+    final Set<String> pinIds = {};
+    final List<Pin> nearbyPins = [];
+    
+    // Add nearby discovered pins
+    for (final pin in nearbyDiscovered) {
+      if (!pinIds.contains(pin.id)) {
+        pinIds.add(pin.id);
+        nearbyPins.add(pin);
+      }
+    }
+    
+    // Add user's own pins (always visible, marked with special indicator)
+    for (final pin in userCreatedPins) {
+      if (!pinIds.contains(pin.id)) {
+        pinIds.add(pin.id);
+        nearbyPins.add(pin);
+      }
+    }
+
+    if (nearbyPins.isEmpty) return const SizedBox();
 
     // 🌟 EXPLORE MODE: If navigating, HIDE all other pins!
+    var displayPins = nearbyPins;
     if (_isNavigating && _navTargetPin != null) {
-      nearbyPins = nearbyPins.where((p) => p.id == _navTargetPin!.id).toList();
+      displayPins = nearbyPins.where((p) => p.id == _navTargetPin!.id).toList();
     }
 
     return MarkerLayer(
-      markers: nearbyPins.map((pin) {
+      markers: displayPins.map((pin) {
         final dist = Geolocator.distanceBetween(
           _userPosition!.latitude, _userPosition!.longitude,
           pin.lat, pin.lon,
         );
         final isInRange = dist <= 50;
         
+        // Check if this is the user's own pin (created by them)
+        final isOwnPin = userCreatedPins.any((p) => p.id == pin.id);
+        
         // Minimalist Visual Rules
         final isHidden = pin.isHidden ?? false;
         final isDeprioritized = pin.isDeprioritized ?? false;
         
-        // Base Color
-        Color color = pin.pinCategory == 'community'
-            ? const Color(0xFFFF9800) // Orange
-            : (pin.type == 'sensation' ? const Color(0xFF9C27B0) : const Color(0xFF4CAF50));
+        // Base Color - User's own pins get special blue color
+        Color color = isOwnPin 
+            ? const Color(0xFF2196F3) // Blue for own pins
+            : pin.pinCategory == 'community'
+                ? const Color(0xFFFF9800) // Orange for community
+                : (pin.type == 'sensation' ? const Color(0xFF9C27B0) : const Color(0xFF4CAF50));
             
         // Deprioritized overrides color to dark grey
         if (isDeprioritized) {
