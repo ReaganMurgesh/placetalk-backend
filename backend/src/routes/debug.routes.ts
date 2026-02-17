@@ -5,7 +5,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
     /**
      * EMERGENCY: Clear all pins (for testing user isolation)
      */
-    fastify.delete('/debug/clear-all-pins', async (request, reply) => {
+    fastify.delete('/clear-all-pins', async (request, reply) => {
         try {
             console.log('🚨 DEBUG: Clearing ALL pins from database');
             
@@ -34,7 +34,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
     /**
      * DEBUG: Show all pins with their creators
      */
-    fastify.get('/debug/show-all-pins', async (request, reply) => {
+    fastify.get('/show-all-pins', async (request, reply) => {
         try {
             const result = await pool.query(`
                 SELECT id, title, created_by, created_at 
