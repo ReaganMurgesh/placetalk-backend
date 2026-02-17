@@ -10,6 +10,7 @@ import { authRoutes } from './modules/auth/auth.controller.js';
 import { discoveryRoutes } from './modules/discovery/discovery.controller.js';
 import { pinsRoutes } from './modules/pins/pins.controller.js';
 import { interactionsRoutes } from './modules/pins/interactions.controller.js';
+import { debugRoutes } from './routes/debug.routes.js';
 import { startLifecycleWorker } from './modules/pins/lifecycle.worker.js';
 
 const fastify = Fastify({
@@ -167,27 +168,12 @@ fastify.get('/migrate-social', async (request, reply) => {
     }
 });
 
-// One-time setup endpoint to create test user
-fastify.get('/setup-test-user', async (request, reply) => {
-    try {
-        const { pool } = await import('./config/database.js');
-        await pool.query(`
-            INSERT INTO users (id, name, email, password_hash, role)
-            VALUES (
-                '123e4567-e89b-12d3-a456-426614174000',
-                'Test User',
-                'test@placetalk.app',
-                '$2b$10$abcdefghijklmnopqrstuvwxyz1234567890',
-                'explorer'
-            )
-            ON CONFLICT (email) DO UPDATE SET
-                id = EXCLUDED.id,
-                name = EXCLUDED.name;
-        `);
-        return { success: true, message: 'Test user created' };
-    } catch (error: any) {
-        return { success: false, error: error.message };
-    }
+// Setup endpoint removed - use scripts/create_test_users.ts instead
+// This prevents automatic test user creation causing shared pins
+
+// Health check endpoint
+fastify.get('/health', async (request, reply) => {
+    return { status: 'ok', timestamp: new Date().toISOString() };
 });
 
 // Register ALL routes
@@ -195,6 +181,9 @@ await fastify.register(authRoutes, { prefix: '/auth' });
 await fastify.register(discoveryRoutes, { prefix: '/discovery' });
 await fastify.register(pinsRoutes, { prefix: '/pins' });
 await fastify.register(interactionsRoutes, { prefix: '/pins' });
+
+// DEBUG routes (for testing user isolation)
+await fastify.register(debugRoutes, { prefix: '/debug' });
 
 // Social features routes (Phase 8)
 const { communitiesRoutes } = await import('./modules/communities/communities.controller.js');

@@ -201,8 +201,21 @@ export class DiaryService {
      * Get user stats (total activities, streaks, badges)
      */
     async getUserStats(userId: string): Promise<UserStats> {
+        // Total activities
         const countResult = await pool.query(
             'SELECT COUNT(*) as total FROM user_activities WHERE user_id = $1',
+            [userId]
+        );
+
+        // Total pins created by user
+        const pinsResult = await pool.query(
+            'SELECT COUNT(*) as total FROM pins WHERE created_by = $1',
+            [userId]
+        );
+
+        // Total discoveries (visited pins)
+        const discoveriesResult = await pool.query(
+            "SELECT COUNT(*) as total FROM user_activities WHERE user_id = $1 AND activity_type = 'visited'",
             [userId]
         );
 
@@ -211,6 +224,8 @@ export class DiaryService {
 
         return {
             totalActivities: parseInt(countResult.rows[0].total),
+            totalPinsCreated: parseInt(pinsResult.rows[0].total),
+            totalDiscoveries: parseInt(discoveriesResult.rows[0].total),
             currentStreak: streaks.current,
             longestStreak: streaks.longest,
             badges,

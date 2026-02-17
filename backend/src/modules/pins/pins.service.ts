@@ -17,7 +17,12 @@ export class PinsService {
      * 5. Set TTL in Redis (auto-cleanup)
      */
     async createPin(data: CreatePinDTO, userId: string): Promise<PinResponse> {
-        // Step 1: Validate community pin permissions
+        console.log(`\n🆕 PIN CREATION STARTED`);
+        console.log(`👤 User ID: ${userId}`);
+        console.log(`📍 Location: (${data.lat}, ${data.lon})`);
+        console.log(`📝 Title: ${data.title}`);
+        console.log(`🏷️ Category: ${data.pinCategory}`);
+        
         // Step 1: Validate community pin permissions (DISABLED for MVP)
         // if (data.pinCategory === 'community') {
         //     const userResult = await pool.query(
@@ -68,6 +73,13 @@ export class PinsService {
         );
 
         const pin = result.rows[0];
+        
+        console.log(`\n✅ PIN CREATED SUCCESSFULLY`);
+        console.log(`🔑 Pin ID: ${pin.id}`);
+        console.log(`👤 Created By: ${pin.created_by}`);
+        console.log(`📍 Coordinates: (${pin.lat}, ${pin.lon})`);
+        console.log(`⏰ Expires At: ${pin.expires_at || 'NEVER (Community)'}`);
+        console.log(`-------------------------------------------\n`);
 
         // Step 4: Write to Redis (discovery index) - Optional
         if (getRedisStatus()) {
@@ -136,9 +148,11 @@ export class PinsService {
     }
 
     /**
-     * Get user's created pins
+     * Get user's created pins with proper isolation
      */
     async getUserPins(userId: string): Promise<PinResponse[]> {
+        console.log(`📍 PinsService: Querying pins for user ${userId}`);
+        
         const result = await pool.query(
             `SELECT 
         id, title, directions, details, type, pin_category, attribute_id,
@@ -150,6 +164,17 @@ export class PinsService {
       ORDER BY created_at DESC`,
             [userId]
         );
+
+        console.log(`📍 PinsService: Database returned ${result.rows.length} pins for user ${userId}`);
+        
+        if (result.rows.length > 0) {
+            console.log(`📍 PinsService: Sample pin data:`, {
+                id: result.rows[0].id,
+                title: result.rows[0].title,
+                created_by: result.rows[0].created_by,
+                created_at: result.rows[0].created_at
+            });
+        }
 
         return result.rows.map((pin) => ({
             id: pin.id,
@@ -167,5 +192,100 @@ export class PinsService {
             dislikeCount: pin.dislike_count,
             createdAt: pin.created_at,
         }));
+    }
+
+    /**
+     * Toggle Pin Like/Dislike - Updates counts & tracks user interactions
+     */
+    async togglePinInteraction(userId: string, pinId: string, interactionType: 'like' | 'dislike') {
+        const client = await pool.connect();
+        
+        try {
+            await client.query('BEGIN');
+
+            // Check if user already has an interaction with this pin
+            const existingInteraction = await client.query(
+                'SELECT interaction_type FROM interactions WHERE user_id = $1 AND pin_id = $2',
+                [userId, pinId]
+            );
+
+            let action = '';
+            
+            if (existingInteraction.rows.length === 0) {
+                // No existing interaction - add new one
+                await client.query(
+                    'INSERT INTO interactions (user_id, pin_id, interaction_type) VALUES ($1, $2, $3)',
+                    [userId, pinId, interactionType]
+                );
+                
+                // Update pin count
+                const countField = interactionType === 'like' ? 'like_count' : 'dislike_count';
+                await client.query(
+                    `UPDATE pins SET ${countField} = ${countField} + 1 WHERE id = $1`,
+                    [pinId]
+                );
+                
+                action = 'added';
+            } else {
+                const existing = existingInteraction.rows[0].interaction_type;
+                
+                if (existing === interactionType) {
+                    // Same interaction - remove it
+                    await client.query(
+                        'DELETE FROM interactions WHERE user_id = $1 AND pin_id = $2',
+                        [userId, pinId]
+                    );
+                    
+                    // Decrease count
+                    const countField = interactionType === 'like' ? 'like_count' : 'dislike_count';
+                    await client.query(
+                        `UPDATE pins SET ${countField} = GREATEST(${countField} - 1, 0) WHERE id = $1`,
+                        [pinId]
+                    );
+                    
+                    action = 'removed';
+                } else {
+                    // Different interaction - switch it
+                    await client.query(
+                        'UPDATE interactions SET interaction_type = $3 WHERE user_id = $1 AND pin_id = $2',
+                        [userId, pinId, interactionType]
+                    );
+                    
+                    // Update both counts
+                    const oldCountField = existing === 'like' ? 'like_count' : 'dislike_count';
+                    const newCountField = interactionType === 'like' ? 'like_count' : 'dislike_count';
+                    
+                    await client.query(
+                        `UPDATE pins SET 
+                            ${oldCountField} = GREATEST(${oldCountField} - 1, 0),
+                            ${newCountField} = ${newCountField} + 1 
+                        WHERE id = $1`,
+                        [pinId]
+                    );
+                    
+                    action = 'switched';
+                }
+            }
+
+            // Get updated counts
+            const updatedPin = await client.query(
+                'SELECT like_count, dislike_count FROM pins WHERE id = $1',
+                [pinId]
+            );
+
+            await client.query('COMMIT');
+
+            return {
+                action,
+                likeCount: updatedPin.rows[0].like_count,
+                dislikeCount: updatedPin.rows[0].dislike_count
+            };
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     }
 }
