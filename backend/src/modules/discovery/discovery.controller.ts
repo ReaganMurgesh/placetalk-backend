@@ -1,20 +1,22 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { DiscoveryService } from './discovery.service.js';
 import type { DiscoveryHeartbeatDTO } from './discovery.types.js';
+import { requireAuth } from '../../middleware/role.middleware.js';
 
 const discoveryService = new DiscoveryService();
 
 export async function discoveryRoutes(fastify: FastifyInstance) {
     /**
      * GPS Heartbeat Endpoint
-     * NO AUTH for testing — uses hardcoded userId
+     * Requires auth for proper user identification
      */
     fastify.post<{ Body: DiscoveryHeartbeatDTO }>(
         '/heartbeat',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const { lat, lon } = request.body;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 if (typeof lat !== 'number' || typeof lon !== 'number') {
                     return reply.code(400).send({ error: 'Invalid coordinates' });
@@ -43,15 +45,16 @@ export async function discoveryRoutes(fastify: FastifyInstance) {
     );
 
     /**
-     * Manual discovery check (for testing)
+     * Manual discovery check (for testing with auth)
      */
     fastify.get<{ Querystring: { lat: string; lon: string } }>(
         '/nearby',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const lat = parseFloat(request.query.lat);
                 const lon = parseFloat(request.query.lon);
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 if (isNaN(lat) || isNaN(lon)) {
                     return reply.code(400).send({ error: 'Invalid coordinates' });

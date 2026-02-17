@@ -13,8 +13,8 @@ import 'package:placetalk/models/pin.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/models/community.dart';
 import 'package:placetalk/screens/social/community_screen.dart';
-import 'package:placetalk/theme/japanese_theme.dart';
 import 'package:placetalk/services/navigation_service.dart';
+import 'package:placetalk/providers/diary_provider.dart';
 
 /// ==========================================================
 /// POKÉMON GO STYLE MAP
@@ -171,13 +171,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           }
         }
 
-        // Navigation Arrival Check (< 5m)
+        // Navigation Arrival Check (< 15m)
         if (_isNavigating && _navTargetPin != null) {
           final distToTarget = Geolocator.distanceBetween(
             pos.latitude, pos.longitude,
             _navTargetPin!.lat, _navTargetPin!.lon,
           );
-          if (distToTarget < 5.0) {
+          if (distToTarget < 15.0) {
             _handleArrival(_navTargetPin!);
           }
         }
@@ -316,6 +316,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             const Text('You Arrived!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text('You discovered "${pin.title}"!', textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            const Text('Enjoy the place!', style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic)),
           ],
         ),
         actions: [
@@ -331,6 +333,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     try {
       final apiClient = ref.read(apiClientProvider);
       await apiClient.logActivity(pin.id, 'visited', metadata: {'source': 'navigation'});
+      
+      // REFRESH Diary Providers to update "Passed Pins"
+      ref.invalidate(diaryTimelineProvider);
+      ref.invalidate(diaryStatsProvider);
+      
       print('✅ Visited "${pin.title}" logged!');
     } catch (e) {
       print('❌ Failed to log visit: $e');
@@ -348,23 +355,17 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     return Scaffold(
       body: Stack(
         children: [
-          // ═══════════════════════════════════════════
-          // LAYER 1: THE MAP (bottom layer — can be dragged)
-          // The map is LOCKED to GPS position. Compass rotates it.
-          // Pin markers live here on the actual map coordinates.
-          // ═══════════════════════════════════════════
+          // ... Map ...
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _userPosition ?? const LatLng(35.6762, 139.6503),
-              initialZoom: 18.0,
-              minZoom: 16.0,
+              initialCenter: _userPosition ?? const LatLng(0.0, 0.0), // Don't use hardcoded Tokyo coordinates
+              initialZoom: _userPosition != null ? 18.0 : 2.0, // Zoom out if no GPS location
+              minZoom: _userPosition != null ? 16.0 : 2.0,
               maxZoom: 19.0,
               initialRotation: -_heading,
-              // When user touches the map, auto-recenter after 2s
               onPositionChanged: (pos, hasGesture) {
                 if (hasGesture && _userPosition != null) {
-                  // Let user look around briefly, then snap back
                   Future.delayed(const Duration(seconds: 2), () {
                     if (mounted && _userPosition != null) {
                       _mapController.move(_userPosition!, _mapController.camera.zoom);
@@ -374,18 +375,15 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               },
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.pinchZoom | InteractiveFlag.pinchMove,
-                // DISABLE drag and rotate — Pokémon GO locks the camera
               ),
             ),
             children: [
-              // High-saturation tiles
               TileLayer(
                 urlTemplate: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
                 userAgentPackageName: 'com.placetalk.app',
                 maxZoom: 19,
               ),
               
-              // Navigation Polyline (Neon Path)
               if (_navigationPath.isNotEmpty)
                 PolylineLayer(
                   polylines: [
@@ -400,20 +398,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 ),
               
               // Pin markers on actual map coordinates
-              
-              // Pin markers on actual map coordinates
               if (_userPosition != null)
                 _buildPinMarkers(state),
             ],
           ),
           
-          // ═══════════════════════════════════════════
-          // LAYER 2: AVATAR + RADIUS RING (fixed overlay)
-          // These are exactly at screen center. They NEVER
-          // move when you interact with the map.
-          // ═══════════════════════════════════════════
-          
-          // 50m radius ring
+          // ... Layer 2 (Avatar) ...
           Center(
             child: Container(
               width: screenSize.width * 0.6,
@@ -429,7 +419,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             ),
           ),
           
-          // Walking Avatar
           Center(
             child: AnimatedBuilder(
               animation: Listenable.merge([_pulseAnim, _bounceAnim]),
@@ -439,7 +428,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Direction arrow
                       Transform.rotate(
                         angle: 0,
                         child: const Icon(
@@ -449,7 +437,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                         ),
                       ),
                       const SizedBox(height: 2),
-                      // Avatar circle
                       Container(
                         width: 50,
                         height: 50,
@@ -480,7 +467,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                           size: 26,
                         ),
                       ),
-                      // Ground shadow
                       Container(
                         width: 24,
                         height: 5,
@@ -497,19 +483,28 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             ),
           ),
           
-          // ═══════════════════════════════════════════
-          // LAYER 3: TOP STATUS BAR
-          // ═══════════════════════════════════════════
+          // ... Layer 3 (Top Bar) ...
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
             left: 16,
             right: 16,
             child: _buildTopBar(state),
           ),
+
+          // STOP NAVIGATION BUTTON (New)
+          if (_isNavigating)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 70,
+              right: 16,
+              child: FloatingActionButton.extended(
+                onPressed: _stopNavigation,
+                backgroundColor: Colors.redAccent,
+                icon: const Icon(Icons.close, color: Colors.white),
+                label: const Text('Stop', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
           
-          // ═══════════════════════════════════════════
-          // LAYER 4: BOTTOM ACTION BAR (Pins, Create, Discover)
-          // ═══════════════════════════════════════════
+          // ... Layer 4 (Bottom Bar) ...
           Positioned(
             bottom: 0,
             left: 0,
@@ -517,9 +512,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             child: _buildBottomBar(context, state),
           ),
           
-          // ═══════════════════════════════════════════
-          // LAYER 5: ZOOM CONTROLS
-          // ═══════════════════════════════════════════
+          // ... Layer 5 (Zoom) ...
           Positioned(
             right: 16,
             bottom: 130,
@@ -542,20 +535,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     );
   }
 
-  Widget _circleBtn(IconData icon, VoidCallback onTap) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8)],
-      ),
-      child: IconButton(icon: Icon(icon, color: Colors.black87), onPressed: onTap),
-    );
-  }
-
-  // ──────────────────────────────────────────────
-  // PIN MARKERS (on the actual map layer)
-  // ──────────────────────────────────────────────
   Widget _buildPinMarkers(DiscoveryState state) {
     if (_userPosition == null) return const SizedBox();
     
@@ -564,13 +543,18 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     
     if (discoveredPins.isEmpty) return const SizedBox();
     
-    final nearbyPins = discoveredPins.where((pin) {
+    var nearbyPins = discoveredPins.where((pin) {
       final dist = Geolocator.distanceBetween(
         _userPosition!.latitude, _userPosition!.longitude,
         pin.lat, pin.lon,
       );
       return dist <= 50; // Show within 50m on map
     }).toList();
+
+    // 🌟 EXPLORE MODE: If navigating, HIDE all other pins!
+    if (_isNavigating && _navTargetPin != null) {
+      nearbyPins = nearbyPins.where((p) => p.id == _navTargetPin!.id).toList();
+    }
 
     return MarkerLayer(
       markers: nearbyPins.map((pin) {
@@ -1081,6 +1065,16 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           ]),
         ),
       ),
+    );
+  }
+  Widget _circleBtn(IconData icon, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8)],
+      ),
+      child: IconButton(icon: Icon(icon, color: Colors.black87), onPressed: onTap),
     );
   }
 }

@@ -1,0 +1,73 @@
+# PlaceTalk Project Handoff 📍🎌
+
+## 1. Executive Summary
+**PlaceTalk** is a location-based social networking app inspired by Pokémon GO's discovery mechanics and Japanese "Miyabi" aesthetics.
+- **Completed**: Phase 1 through Phase 13 (Core Discovery, Community Chat, Diary Gamification, Navigation Mode).
+- **Current Status**: Backend deployed to Render (PostgreSQL), Mobile App fully functional (APK builds successfully).
+
+## 2. Tech Stack & Architecture
+### Backend (`backend/`)
+- **Node.js + Express + TypeScript**: Robust REST API.
+- **PostgreSQL (Supabase/Render)**: Relational data (Users, Pins, Communities, Activities).
+- **Authentication**: JWT-based with Role-Based Access Control (RBAC).
+- **Key Modules**:
+  - `discovery`: Handles GPS heartbeat, pin visibility logic.
+  - [communities](file:///C:/Users/reaga/Downloads/flutter_placetalk/backend/src/modules/communities/communities.controller.ts#6-181): Group chats, admin posts, emoji reactions.
+  - [diary](file:///C:/Users/reaga/Downloads/flutter_placetalk/backend/src/modules/diary/diary.controller.ts#5-57): Activity logging, streaks, badges.
+  - `pins`: CRUD operations, user interactions (report/hide).
+
+### Mobile (`mobile/`)
+- **Flutter (Dart)**: Cross-platform mobile app.
+- **Map**: `flutter_map` with Carto Voyager tiles (High saturation).
+- **State Management**: `Riverpod` (Providers for Discovery, Auth, Diary).
+- **Features**:
+  - **3D Map Tilt & Avatar**: Custom animations (pulse/bounce).
+  - **Japanese Theme**: Custom colors (Wakatake, Kogane) and Noto Sans JP font.
+  - **Navigation Mode**: Polyline routing to pins + Arrival detection.
+
+## 3. Key Features Implemented
+### 🧭 Discovery System
+- **Heartbeat**: 15m movement triggers backend API to fetch nearby pins.
+- **Compass**: Map rotates with device heading.
+- **Smart Pins**: Markers show distance, type (Location/Sensation), and community status.
+
+### 🎌 Social: Communities
+- **Auto-Join**: Tapping a "Community Pin" joins the community dynamically.
+- **Chat Interface**: WhatsApp-style messaging with bubbles.
+- **Reactions**: Tap message to toggle emojis (JSONB storage).
+- **Admin Roles**: Only admins can post "Broadcast" messages (configurable).
+
+### 📔 Social: Diary & Gamification
+- **Timeline**: Tracks all interactions (Visited, Liked, Commented, Created).
+- **Badges**: Awarded for milestones (Explorer, Amakusa Wanderer, Mikan Lover).
+- **Streaks**: Daily activity counter with Fire emoji 🔥.
+- **"Passed Pins"**: Filtered view showing only discovered places (excluding own creations).
+
+### 🗺️ Navigation Mode (New!)
+- **Focused UI**: Hides non-target pins during navigation.
+- **Neon Path**: Draws a direct line to destination.
+- **Arrival Logic**: Detects <15m distance -> Shows "Success" overlay -> Logs visit to Diary.
+- **Cancellation**: "Stop Navigation" button on map.
+
+## 4. Current Development Status
+- **Backend Deployment**: HTTPS URL active on Render. `ngrok` bypass implemented for local testing.
+- **Mobile Build**: `flutter run` works (Desugaring enabled for notifications).
+- **Known Issues**:
+  - Socket.io is scaffolded but not fully wired for *instant* real-time (uses polling currently).
+  - Emoji Picker library needs Gradle compatibility update (currently using native keyboard emojis).
+
+## 5. Next Steps for Developer
+1.  **Real-Time Chat**: Wire up `socket.io-client` in Flutter to replace polling in [CommunityPage](file:///C:/Users/reaga/Downloads/flutter_placetalk/mobile/lib/screens/social/community_screen.dart#161-169).
+2.  **Advanced Animations**: Add "fade-in" effects for pins as you walk closer.
+3.  **Image Uploads**: Integrate AWS S3 or Cloudinary for community message images.
+4.  **Admin Dashboard**: Expand the web dashboard (React) for content moderation.
+
+## 6. Important Commands
+- **Run Mobile**: `flutter run`
+- **Build APK**: `flutter build apk --release`
+- **Run Backend (Local)**: `npm run dev` in `backend/`
+
+## 7. Artifacts Reference
+- [implementation_plan.md](file:///C:/Users/reaga/.gemini/antigravity/brain/0e989688-0b0b-47bc-b263-67070b8b33da/implementation_plan.md): Detailed technical specs.
+- [task.md](file:///C:/Users/reaga/.gemini/antigravity/brain/0e989688-0b0b-47bc-b263-67070b8b33da/task.md): Checklist of completed phases.
+- `cloud_testing_guide.md`: How to verify features against the live server.

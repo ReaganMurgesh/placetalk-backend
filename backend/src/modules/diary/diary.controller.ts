@@ -8,7 +8,7 @@ export async function diaryRoutes(fastify: FastifyInstance) {
      */
     fastify.get('/timeline', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
             const limit = Number(request.query.limit) || 100;
             const startDate = request.query.startDate ? new Date(request.query.startDate) : undefined;
             const endDate = request.query.endDate ? new Date(request.query.endDate) : undefined;
@@ -27,7 +27,7 @@ export async function diaryRoutes(fastify: FastifyInstance) {
      */
     fastify.get('/stats', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
             const stats = await diaryService.getUserStats(userId);
 
             return reply.send(stats);
@@ -42,7 +42,7 @@ export async function diaryRoutes(fastify: FastifyInstance) {
      */
     fastify.post('/log', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
             const { pinId, activityType, metadata } = request.body;
 
             const activity = await diaryService.logActivity(userId, pinId, activityType, metadata);

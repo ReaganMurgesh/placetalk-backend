@@ -78,12 +78,16 @@ class TimelineEntry {
 
 class UserStats {
   final int totalActivities;
+  final int totalPinsCreated;
+  final int totalDiscoveries;
   final int currentStreak;
   final int longestStreak;
   final List<Badge> badges;
 
   UserStats({
     required this.totalActivities,
+    required this.totalPinsCreated,
+    required this.totalDiscoveries,
     required this.currentStreak,
     required this.longestStreak,
     required this.badges,
@@ -91,10 +95,12 @@ class UserStats {
 
   factory UserStats.fromJson(Map<String, dynamic> json) {
     return UserStats(
-      totalActivities: json['totalActivities'],
-      currentStreak: json['currentStreak'],
-      longestStreak: json['longestStreak'],
-      badges: (json['badges'] as List)
+      totalActivities: json['totalActivities'] ?? 0,
+      totalPinsCreated: json['totalPinsCreated'] ?? 0,
+      totalDiscoveries: json['totalDiscoveries'] ?? 0,
+      currentStreak: json['currentStreak'] ?? 0,
+      longestStreak: json['longestStreak'] ?? 0,
+      badges: (json['badges'] as List? ?? [])
           .map((b) => Badge.fromJson(b))
           .toList(),
     );

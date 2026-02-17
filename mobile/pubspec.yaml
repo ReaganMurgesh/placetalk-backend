@@ -29,6 +29,8 @@ dependencies:
   # Core
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.6
   
   # State Management
@@ -54,6 +56,7 @@ dependencies:
   
   # Social Features
   timeline_tile: ^2.0.0          # Diary timeline UI
+  confetti: ^0.7.0              # Community join celebration
   # emoji_picker_flutter: ^1.6.4   # Emoji reactions (temporarily disabled - JVM compat issue)
   
   # Local Storage
@@ -63,9 +66,10 @@ dependencies:
   # firebase_core: ^2.24.2
   # firebase_messaging: ^14.7.9
   # Utilities
-  intl: ^0.18.1
+  intl: ^0.20.2
   uuid: ^4.3.3
   flutter_polyline_points: ^3.1.0
+  url_launcher: ^6.2.4          # Launch external apps (maps)
 
 dev_dependencies:
   flutter_test:
@@ -87,6 +91,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  
+  # Generate localizations
+  generate: true
 
   # To add assets to your application, add an assets section, like this:
   # assets:

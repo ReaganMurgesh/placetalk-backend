@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { InteractionsService } from './interactions.service.js';
 import { diaryService } from '../diary/diary.service.js';
+import { requireAuth } from '../../middleware/role.middleware.js';
 
 const interactionsService = new InteractionsService();
 
@@ -10,10 +11,11 @@ export async function interactionsRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Params: { id: string } }>(
         '/:id/like',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const pinId = request.params.id;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 const result = await interactionsService.likePin(userId, pinId);
 
@@ -39,10 +41,11 @@ export async function interactionsRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Params: { id: string } }>(
         '/:id/report',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const pinId = request.params.id;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 const result = await interactionsService.reportPin(userId, pinId);
 
@@ -68,10 +71,11 @@ export async function interactionsRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Params: { id: string } }>(
         '/:id/hide',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const pinId = request.params.id;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 await interactionsService.hidePin(userId, pinId);
 

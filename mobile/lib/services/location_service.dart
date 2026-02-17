@@ -9,11 +9,50 @@ final locationServiceProvider = Provider<LocationService>((ref) {
 class LocationService {
   Position? _lastPosition;
   
-  /// Get current position
+  /// Get current position with better error handling and debugging
   Future<Position> getCurrentPosition() async {
-    return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+    try {
+      print('🎯 LocationService: Getting current position...');
+      
+      // Check location service enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('❌ LocationService: Location services are disabled');
+        throw Exception('Location services are disabled. Please enable location services in device settings.');
+      }
+
+      // Check permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          print('❌ LocationService: Location permissions denied');
+          throw Exception('Location permissions are denied. Please grant location access.');
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        print('❌ LocationService: Location permissions denied forever');
+        throw Exception('Location permissions are permanently denied. Please enable in device settings.');
+      }
+
+      // Get position with high accuracy
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      
+      print('✅ LocationService: Got position - Lat: ${position.latitude}, Lon: ${position.longitude}');
+      print('📊 LocationService: Accuracy: ${position.accuracy}m, Timestamp: ${position.timestamp}');
+      
+      // Store last position
+      _lastPosition = position;
+      
+      return position;
+    } catch (e) {
+      print('❌ LocationService: Error getting position - $e');
+      rethrow;
+    }
   }
 
   /// Check if location services are enabled

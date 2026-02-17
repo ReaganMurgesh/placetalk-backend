@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PinsService } from './pins.service.js';
 import type { CreatePinDTO } from './pins.types.js';
+import { requireAuth } from '../../middleware/role.middleware.js';
 
 const pinsService = new PinsService();
 
@@ -10,6 +11,7 @@ export async function pinsRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Body: CreatePinDTO }>(
         '/',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
                 const { title, directions, details, lat, lon, type, pinCategory, attributeId, visibleFrom, visibleTo } =
@@ -23,7 +25,7 @@ export async function pinsRoutes(fastify: FastifyInstance) {
                     return reply.code(400).send({ error: 'Invalid coordinates' });
                 }
 
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 const pin = await pinsService.createPin(
                     {
@@ -72,16 +74,23 @@ export async function pinsRoutes(fastify: FastifyInstance) {
     );
 
     /**
-     * Get user's created pins — NO AUTH for testing
+     * Get user's created pins — with proper user isolation
      */
     fastify.get(
         '/my/pins',
+        { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId;
+                console.log(`👤 PinsController: Getting pins for user ${userId}`);
+                
                 const pins = await pinsService.getUserPins(userId);
+                
+                console.log(`📍 PinsController: Found ${pins.length} pins for user ${userId}`);
+                
                 return reply.send({ pins, count: pins.length });
             } catch (error) {
+                console.error(`❌ PinsController: Error fetching pins:`, error);
                 fastify.log.error(error);
                 return reply.code(500).send({ error: 'Failed to fetch pins' });
             }
@@ -91,10 +100,10 @@ export async function pinsRoutes(fastify: FastifyInstance) {
     /**
      * SERENDIPITY: Mark pin as "Good" (7-day cooldown)
      */
-    fastify.post('/:pinId/mark-good', async (request: any, reply) => {
+    fastify.post('/:pinId/mark-good', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
             const { pinId } = request.params;
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             const { pinInteractionsService } = await import('./pin-interactions.service.js');
             const interaction = await pinInteractionsService.markPinAsGood(userId, pinId);
@@ -113,10 +122,10 @@ export async function pinsRoutes(fastify: FastifyInstance) {
     /**
      * SERENDIPITY: Mark pin as "Bad" (mute forever)
      */
-    fastify.post('/:pinId/mark-bad', async (request: any, reply) => {
+    fastify.post('/:pinId/mark-bad', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
             const { pinId } = request.params;
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             const { pinInteractionsService } = await import('./pin-interactions.service.js');
             const interaction = await pinInteractionsService.markPinAsBad(userId, pinId);
@@ -135,10 +144,10 @@ export async function pinsRoutes(fastify: FastifyInstance) {
     /**
      * SERENDIPITY: Unmute pin (tap on map)
      */
-    fastify.post('/:pinId/unmute', async (request: any, reply) => {
+    fastify.post('/:pinId/unmute', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
             const { pinId } = request.params;
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             const { pinInteractionsService } = await import('./pin-interactions.service.js');
             const interaction = await pinInteractionsService.unmutePinForever(userId, pinId);
@@ -157,9 +166,9 @@ export async function pinsRoutes(fastify: FastifyInstance) {
     /**
      * Get all user interactions (for syncing to mobile)
      */
-    fastify.get('/interactions', async (request: any, reply) => {
+    fastify.get('/interactions', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             const { pinInteractionsService } = await import('./pin-interactions.service.js');
             const interactions = await pinInteractionsService.getUserInteractions(userId);

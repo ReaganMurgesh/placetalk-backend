@@ -4,6 +4,8 @@ import 'package:placetalk/widgets/pokemon_style_map.dart';
 import 'package:placetalk/screens/social/community_screen.dart';
 import 'package:placetalk/screens/social/diary_screen.dart';
 import 'package:placetalk/theme/japanese_theme.dart';
+import 'package:placetalk/providers/locale_provider.dart';
+import 'package:placetalk/l10n/app_localizations.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -29,7 +31,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = ref.watch(localeProvider);
+    final localizations = AppLocalizations.of(context)!;
+    
     return Scaffold(
+      appBar: AppBar(
+        title: Text(localizations.appTitle),
+        actions: [
+          // Language toggle button
+          IconButton(
+            onPressed: () {
+              ref.read(localeProvider.notifier).toggleLanguage();
+            },
+            icon: Icon(locale.languageCode == 'en' ? Icons.translate : Icons.language),
+            tooltip: locale.languageCode == 'en' ? '日本語' : 'English',
+          ),
+        ],
+      ),
       body: _screens[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
@@ -37,18 +55,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         selectedItemColor: JapaneseColors.wakatake,
         unselectedItemColor: Colors.grey[400],
         type: BottomNavigationBarType.fixed,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.explore),
-            label: 'Discover',
+            icon: const Icon(Icons.explore),
+            label: localizations.discover,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.groups),
-            label: 'Community',
+            icon: const Icon(Icons.groups),
+            label: localizations.community,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.auto_stories),
-            label: 'Diary',
+            icon: const Icon(Icons.auto_stories),
+            label: localizations.diary,
           ),
         ],
       ),

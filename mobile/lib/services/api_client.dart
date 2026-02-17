@@ -170,8 +170,14 @@ class ApiClient {
   }
 
   Future<List<Pin>> getMyPins() async {
+    print('🌐 ApiClient: Making request to ${ApiConfig.pinsMyPins}');
     final response = await _dio.get(ApiConfig.pinsMyPins);
+    print('🌐 ApiClient: Response status = ${response.statusCode}');
+    print('🌐 ApiClient: Response data = ${response.data}');
+    
     final pins = response.data['pins'] as List;
+    print('🌐 ApiClient: Parsed ${pins.length} pins from response');
+    
     return pins.map((json) => Pin.fromJson(json)).toList();
   }
 

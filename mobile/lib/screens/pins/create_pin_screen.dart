@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:placetalk/services/location_service.dart';
-import 'package:placetalk/services/api_client.dart';
-import 'package:placetalk/models/pin.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 
@@ -19,11 +17,18 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   final _titleController = TextEditingController();
   final _directionsController = TextEditingController();
   final _detailsController = TextEditingController();
+  final _rulesController = TextEditingController();
 
-  String _pinType = 'location';
+  final String _pinType = 'location';
   String _pinCategory = 'normal';
   bool _isLoading = false;
   Position? _currentPosition;
+  
+  // Safety & Privacy Checks
+  bool _isPublicSpace = false;
+  bool _respectsPrivacy = false;
+  bool _followsGuidelines = false;
+  bool _noPrivateProperty = false;
 
   @override
   void initState() {
@@ -36,20 +41,38 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
     _titleController.dispose();
     _directionsController.dispose();
     _detailsController.dispose();
+    _rulesController.dispose();
     super.dispose();
+  }
+
+  bool _canCreatePin() {
+    return _isPublicSpace && 
+           _respectsPrivacy && 
+           _followsGuidelines && 
+           _noPrivateProperty &&
+           _currentPosition != null;
   }
 
   Future<void> _getCurrentLocation() async {
     try {
+      print('🎯 CreatePinScreen: Getting current location...');
       final locationService = ref.read(locationServiceProvider);
       final position = await locationService.getCurrentPosition();
+      
+      print('✅ CreatePinScreen: Received position - Lat: ${position.latitude}, Lon: ${position.longitude}');
+      
       setState(() {
         _currentPosition = position;
       });
     } catch (e) {
+      print('❌ CreatePinScreen: Location error - $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to get location: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('GPS Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }
@@ -64,23 +87,49 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       final locationService = ref.read(locationServiceProvider);
       
       // Get FRESH GPS coordinates (high accuracy) at the exact moment of pin creation
+      print('🎯 CreatePinScreen: Getting FRESH GPS coordinates for pin creation...');
       final position = await locationService.getCurrentPosition();
+      print('✅ CreatePinScreen: Fresh coordinates - Lat: ${position.latitude}, Lon: ${position.longitude}');
       
       setState(() => _isLoading = false);
       
-      // SHOW GPS COORDINATES TO USER
+      // Check if still mounted before using context
+      if (!mounted) return;
+      
+      // SHOW GPS COORDINATES TO USER WITH ACCURACY INFO
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('📍 GPS Coordinates'),
+          title: const Text('📍 Confirm Pin Location'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Latitude: ${position.latitude.toStringAsFixed(6)}'),
-              Text('Longitude: ${position.longitude.toStringAsFixed(6)}'),
-              const SizedBox(height: 16),
-              const Text('Create pin at this location?', style: TextStyle(fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  const Icon(Icons.gps_fixed, color: Colors.green, size: 20),
+                  const SizedBox(width: 8),
+                  Text('GPS Accuracy: ${position.accuracy.toStringAsFixed(1)}m'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('📍 Latitude: ${position.latitude.toStringAsFixed(6)}'),
+                    Text('📍 Longitude: ${position.longitude.toStringAsFixed(6)}'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Pin will be created at this exact GPS location.', 
+                style: TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
           actions: [
@@ -106,12 +155,19 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       final apiClient = ref.read(apiClientProvider);
       
       // Call REAL backend API — saves to PostGIS + Redis
+      
+      // Prepare details with rules
+      String? finalDetails = _detailsController.text.trim();
+      if (_rulesController.text.trim().isNotEmpty) {
+        finalDetails = finalDetails.isNotEmpty == true 
+            ? '$finalDetails\n\n📋 Rules: ${_rulesController.text.trim()}'
+            : '📋 Rules: ${_rulesController.text.trim()}';
+      }
+      
       final pin = await apiClient.createPin(
         title: _titleController.text.trim(),
         directions: _directionsController.text.trim(),
-        details: _detailsController.text.trim().isNotEmpty 
-            ? _detailsController.text.trim() 
-            : null,
+        details: finalDetails,
         lat: position.latitude,  // Use fresh coordinates
         lon: position.longitude, // Use fresh coordinates
         type: _pinType,
@@ -124,7 +180,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('📍 Pin "${pin.title}" created and saved to server!'),
+            content: Text('📍 Pin "${pin.title}" created safely! Thank you for respecting privacy.'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 3),
           ),
@@ -311,54 +367,138 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                   if (value == null || value.trim().isEmpty) return 'Please enter directions';
                   return null;
                 },
+            ),
+
+            const SizedBox(height: 12),
+
+            // Details
+            TextFormField(
+              controller: _detailsController,
+              decoration: InputDecoration(
+                labelText: 'Details (Optional)',
+                hintText: 'Great coffee, quiet atmosphere...',
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.description),
               ),
+              maxLines: 3,
+              maxLength: 500,
+            ),
 
-              const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-              // Details
-              TextFormField(
-                controller: _detailsController,
-                decoration: InputDecoration(
-                  labelText: 'Details (Optional)',
-                  hintText: 'Great coffee, quiet atmosphere...',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.description),
-                ),
-                maxLines: 3,
-                maxLength: 500,
+            // Rules & Guidelines (NEW)
+            TextFormField(
+              controller: _rulesController,
+              decoration: InputDecoration(
+                labelText: 'Rules & Guidelines for this Area',
+                hintText: 'e.g., "Quiet zone - please speak softly", "Clean up after yourself"...',
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.rule, color: Colors.deepPurple),
               ),
+              maxLines: 2,
+              maxLength: 200,
+            ),
 
-              const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
-              // Create Button
-              Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF6C63FF), Color(0xFF3F3D9B)]),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: const Color(0xFF6C63FF).withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4)),
-                  ],
-                ),
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _createPin,
-                  icon: _isLoading
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.add_location, color: Colors.white),
-                  label: Text(
-                    _isLoading ? 'Creating...' : 'Drop Pin Here 📍',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+            // 🏗️ PUBLIC SAFETY CHECKLIST
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red[200]!, width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.security, color: Colors.red[700]),
+                      const SizedBox(width: 8),
+                      Text('Privacy & Safety Checklist', 
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red[700])),
+                    ],
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  const SizedBox(height: 12),
+                  Text('Please confirm before creating your pin:', 
+                    style: TextStyle(color: Colors.red[600])),
+                  const SizedBox(height: 12),
+                  
+                  CheckboxListTile(
+                    title: const Text('This is a PUBLIC space (not private property)', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Parks, cafes, streets, etc. - NOT someone\'s home', style: TextStyle(fontSize: 12)),
+                    value: _isPublicSpace,
+                    onChanged: (value) => setState(() => _isPublicSpace = value ?? false),
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: Colors.green,
                   ),
+                  
+                  CheckboxListTile(
+                    title: const Text('I respect privacy and local customs', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Won\'t disturb residents or private businesses', style: TextStyle(fontSize: 12)),
+                    value: _respectsPrivacy,
+                    onChanged: (value) => setState(() => _respectsPrivacy = value ?? false),
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: Colors.green,
+                  ),
+                  
+                  CheckboxListTile(
+                    title: const Text('I follow community guidelines', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('This pin follows PlaceTalk\'s community standards', style: TextStyle(fontSize: 12)),
+                    value: _followsGuidelines,
+                    onChanged: (value) => setState(() => _followsGuidelines = value ?? false),
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: Colors.green,
+                  ),
+                  
+                  CheckboxListTile(
+                    title: const Text('No private homes or restricted areas', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('I will not pin private residences or secure facilities', style: TextStyle(fontSize: 12)),
+                    value: _noPrivateProperty,
+                    onChanged: (value) => setState(() => _noPrivateProperty = value ?? false),
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: Colors.green,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // Create Button
+            Container(
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: _canCreatePin() ? 
+                  const LinearGradient(colors: [Color(0xFF6C63FF), Color(0xFF3F3D9B)]) :
+                  LinearGradient(colors: [Colors.grey[400]!, Colors.grey[500]!]),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: _canCreatePin() ? [
+                  BoxShadow(color: const Color(0xFF6C63FF).withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4)),
+                ] : null,
+              ),
+              child: ElevatedButton.icon(
+                onPressed: (_isLoading || !_canCreatePin()) ? null : _createPin,
+                icon: _isLoading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Icon(Icons.add_location, color: _canCreatePin() ? Colors.white : Colors.grey[600]),
+                label: Text(
+                  _isLoading ? 'Creating...' : 'Drop Pin Here 📍',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, 
+                    color: _canCreatePin() ? Colors.white : Colors.grey[600]),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
-
+            ),
               const SizedBox(height: 12),
               Text(
                 'Pin visible to users within 50m for 72 hours',

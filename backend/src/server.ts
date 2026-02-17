@@ -172,11 +172,6 @@ fastify.get('/migrate-social', async (request, reply) => {
 // Setup endpoint removed - use scripts/create_test_users.ts instead
 // This prevents automatic test user creation causing shared pins
 
-// Health check endpoint
-fastify.get('/health', async (request, reply) => {
-    return { status: 'ok', timestamp: new Date().toISOString() };
-});
-
 // Register ALL routes
 await fastify.register(authRoutes, { prefix: '/auth' });
 await fastify.register(discoveryRoutes, { prefix: '/discovery' });

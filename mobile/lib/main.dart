@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:placetalk/screens/home/home_screen.dart';
 import 'package:placetalk/screens/auth/login_screen.dart';
@@ -8,6 +9,8 @@ import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/services/proximity_tracker.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
+import 'package:placetalk/providers/locale_provider.dart';
+import 'package:placetalk/l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,9 +61,22 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = ref.watch(localeProvider);
+    
     return MaterialApp(
       title: 'PlaceTalk',
       debugShowCheckedModeBanner: false,
+      locale: locale,
+      localizationsDelegates: [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: [
+        Locale('en'), // English
+        Locale('ja'), // Japanese
+      ],
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(

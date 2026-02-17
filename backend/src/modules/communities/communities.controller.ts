@@ -12,7 +12,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
         { preHandler: requireAdmin },
         async (request: any, reply) => {
             try {
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
                 const community = await communitiesService.createCommunity(request.body, userId);
 
                 return reply.code(201).send({
@@ -35,7 +35,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
         async (request: any, reply) => {
             try {
                 const { name } = request.body;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
 
                 const community = await communitiesService.findOrCreateCommunity(name, userId);
 
@@ -55,7 +55,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
      */
     fastify.get('/joined', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
             const communities = await communitiesService.getUserCommunities(userId);
 
             return reply.send({ communities, count: communities.length });
@@ -71,7 +71,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
     fastify.post('/:communityId/join', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
             const { communityId } = request.params;
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             await communitiesService.joinCommunity(communityId, userId);
 
@@ -88,7 +88,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
     fastify.delete('/:communityId/leave', { preHandler: requireAuth }, async (request: any, reply) => {
         try {
             const { communityId } = request.params;
-            const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+            const userId = request.user.userId; // Remove fallback
 
             await communitiesService.leaveCommunity(communityId, userId);
 
@@ -108,7 +108,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
         async (request: any, reply) => {
             try {
                 const { communityId } = request.params;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
                 const userRole = request.user?.role;
 
                 // Check permissions (Admin OR Community Creator)
@@ -165,7 +165,7 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
         async (request: any, reply) => {
             try {
                 const { messageId } = request.params;
-                const userId = request.user?.userId || '123e4567-e89b-12d3-a456-426614174000';
+                const userId = request.user.userId; // Remove fallback
                 const { emoji } = request.body;
 
                 await communitiesService.toggleReaction(messageId, userId, emoji);

@@ -16,6 +16,8 @@ export interface TimelineEntry extends UserActivity {
 
 export interface UserStats {
     totalActivities: number;
+    totalPinsCreated: number;
+    totalDiscoveries: number;
     currentStreak: number;
     longestStreak: number;
     badges: Badge[];
