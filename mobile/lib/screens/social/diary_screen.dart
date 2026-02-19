@@ -916,10 +916,10 @@ class _JapaneseTimelineCard extends StatelessWidget {
                       color: _DiaryColors.sumiIro,
                     ),
                   ),
-                  if (entry.timestamp != null) ...[
+                  if (entry.createdAt != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      _formatTime(entry.timestamp),
+                      _formatTime(entry.createdAt),
                       style: TextStyle(
                         fontSize: 12,
                         color: _DiaryColors.sumiIro.withOpacity(0.5),

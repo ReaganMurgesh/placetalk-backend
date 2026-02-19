@@ -67,13 +67,13 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
       title: 'PlaceTalk',
       debugShowCheckedModeBanner: false,
       locale: locale,
-      localizationsDelegates: [
+      localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: [
+      supportedLocales: const [
         Locale('en'), // English
         Locale('ja'), // Japanese
       ],

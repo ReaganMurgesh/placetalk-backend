@@ -17,7 +17,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _homeRegionController = TextEditingController();
   bool _isPasswordVisible = false;
-  String _selectedRole = 'normal';
+  final String _selectedRole = 'normal'; // All users are normal users now
   String _selectedCountry = 'Japan';
 
   @override
@@ -222,7 +222,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 // Country Dropdown
                 DropdownButtonFormField<String>(
-                  value: _selectedCountry,
+                  initialValue: _selectedCountry,
                   decoration: InputDecoration(
                     labelText: 'Country',
                     prefixIcon: const Icon(Icons.flag_outlined),
@@ -242,50 +242,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       });
                     }
                   },
-                ),
-                const SizedBox(height: 16),
-
-                // Role Selection
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Account Type',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        RadioListTile<String>(
-                          title: const Text('Normal User'),
-                          subtitle: const Text('Discover and create pins'),
-                          value: 'normal',
-                          groupValue: _selectedRole,
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() {
-                                _selectedRole = value;
-                              });
-                            }
-                          },
-                        ),
-                        RadioListTile<String>(
-                          title: const Text('Community User'),
-                          subtitle: const Text('Create community events & pins'),
-                          value: 'community',
-                          groupValue: _selectedRole,
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() {
-                                _selectedRole = value;
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
                 const SizedBox(height: 24),
 

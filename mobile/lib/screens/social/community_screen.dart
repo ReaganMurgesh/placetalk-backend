@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:placetalk/models/community.dart';
-import 'package:placetalk/services/api_client.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/theme/japanese_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// Japanese-themed color palette for Community
+class _CommunityColors {
+  static const Color sakuraPink = Color(0xFFFFB7C5);
+  static const Color softPink = Color(0xFFFFF0F5);
+  static const Color bambooGreen = Color(0xFF7BA23F);
+  static const Color sumi = Color(0xFF333333);
+  static const Color washi = Color(0xFFFAF8F5);
+  static const Color goldAccent = Color(0xFFD4A373);
+}
 
 final communitiesProvider = FutureProvider<List<Community>>((ref) async {
   final apiClient = ref.watch(apiClientProvider);
@@ -20,59 +29,133 @@ class CommunityListScreen extends ConsumerWidget {
     final communitiesAsync = ref.watch(communitiesProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Communities'),
-        elevation: 1,
-      ),
-      body: communitiesAsync.when(
-        data: (communities) {
-          if (communities.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      backgroundColor: _CommunityColors.washi,
+      body: CustomScrollView(
+        slivers: [
+          // Decorative Japanese header
+          SliverAppBar(
+            expandedHeight: 140,
+            pinned: true,
+            backgroundColor: _CommunityColors.sakuraPink,
+            flexibleSpace: FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.only(left: 16, bottom: 12),
+              title: const Row(
                 children: [
-                  Icon(Icons.groups_outlined, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No communities yet',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                  Text('コミュニティ', style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  )),
+                ],
+              ),
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [Color(0xFFFF8FAB), Color(0xFFFFB7C5)],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Join a community to start',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  Positioned(
+                    right: 16,
+                    top: 20,
+                    child: Text('花', style: TextStyle(
+                      fontSize: 80,
+                      color: Colors.white.withOpacity(0.15),
+                      fontWeight: FontWeight.bold,
+                    )),
+                  ),
+                  Positioned(
+                    right: 70,
+                    top: 55,
+                    child: Text('🌸', style: TextStyle(
+                      fontSize: 36,
+                      color: Colors.white.withOpacity(0.5),
+                    )),
                   ),
                 ],
               ),
-            );
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: communities.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final community = communities[index];
-              return _CommunityCard(community: community);
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text('Error: $error'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.refresh(communitiesProvider),
-                child: const Text('Retry'),
-              ),
-            ],
+            ),
           ),
-        ),
+          // Content
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: communitiesAsync.when(
+              data: (communities) {
+                if (communities.isEmpty) {
+                  return SliverFillRemaining(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: _CommunityColors.sakuraPink.withOpacity(0.2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Center(
+                              child: Text('🌸', style: TextStyle(fontSize: 40)),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'まだコミュニティがありません',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: _CommunityColors.sumi,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Join a community to start connecting',
+                            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _CommunityCard(community: communities[index]),
+                    ),
+                    childCount: communities.length,
+                  ),
+                );
+              },
+              loading: () => const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator(color: _CommunityColors.sakuraPink)),
+              ),
+              error: (error, stack) => SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error: $error'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => ref.refresh(communitiesProvider),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -86,8 +169,10 @@ class _CommunityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 3,
+      shadowColor: _CommunityColors.sakuraPink.withOpacity(0.3),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      color: Colors.white,
       child: InkWell(
         onTap: () {
           Navigator.push(
@@ -97,28 +182,36 @@ class _CommunityCard extends StatelessWidget {
             ),
           );
         },
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Community icon
+              // Community icon with gradient background
               Container(
-                width: 56,
-                height: 56,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
-                  color: JapaneseColors.wakatake.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: const LinearGradient(
+                    colors: [_CommunityColors.sakuraPink, Color(0xFFFF8FAB)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _CommunityColors.sakuraPink.withOpacity(0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: community.imageUrl != null
                     ? ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          community.imageUrl!,
-                          fit: BoxFit.cover,
-                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.network(community.imageUrl!, fit: BoxFit.cover),
                       )
-                    : const Icon(Icons.groups, color: JapaneseColors.wakatake, size: 32),
+                    : const Center(child: Text('🌸', style: TextStyle(fontSize: 28))),
               ),
               const SizedBox(width: 16),
               // Community info
@@ -129,26 +222,47 @@ class _CommunityCard extends StatelessWidget {
                     Text(
                       community.name,
                       style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: _CommunityColors.sumi,
                       ),
                     ),
                     if (community.description != null) ...[
                       const SizedBox(height: 4),
                       Text(
                         community.description!,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _CommunityColors.sakuraPink.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        '参加済み • Joined',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFE75480),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
+              const Icon(Icons.chevron_right, color: _CommunityColors.sakuraPink),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
             ],
           ),
         ),
@@ -231,13 +345,25 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
     final isAdmin = user?.role == 'admin' || user?.id == widget.community.createdBy;
 
     return Scaffold(
+      backgroundColor: _CommunityColors.washi,
       appBar: AppBar(
-        title: Text(widget.community.name),
+        backgroundColor: _CommunityColors.sakuraPink,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.community.name,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            const Text('コミュニティ', style: TextStyle(fontSize: 11, color: Colors.white70)),
+          ],
+        ),
         actions: [
           // Notification Toggle
           IconButton(
-            icon: Icon(_notificationsEnabled ? Icons.notifications_active : Icons.notifications_off),
-            color: _notificationsEnabled ? JapaneseColors.wakatake : Colors.grey,
+            icon: Icon(_notificationsEnabled ? Icons.notifications_active : Icons.notifications_none),
+            color: Colors.white,
+            tooltip: _notificationsEnabled ? 'Mute' : 'Notify',
             onPressed: () async {
               setState(() => _notificationsEnabled = !_notificationsEnabled);
               
@@ -249,28 +375,80 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
                   SnackBar(
                     content: Text(_notificationsEnabled ? '🔔 Notifications ON' : '🔕 Notifications OFF'),
                     duration: const Duration(seconds: 1),
+                    backgroundColor: _CommunityColors.sakuraPink,
                   ),
                 );
               }
             },
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _loadMessages,
           ),
         ],
       ),
       body: Column(
         children: [
+          // Community banner info
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  _CommunityColors.sakuraPink.withOpacity(0.3),
+                  _CommunityColors.softPink,
+                ],
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Text('🌸', style: TextStyle(fontSize: 18)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.community.description ?? 'Community board',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (isAdmin)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _CommunityColors.bambooGreen.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _CommunityColors.bambooGreen.withOpacity(0.5)),
+                    ),
+                    child: const Text('管理者 Admin',
+                        style: TextStyle(fontSize: 11, color: _CommunityColors.bambooGreen, fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+          ),
           // Messages list
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: CircularProgressIndicator(color: _CommunityColors.sakuraPink))
                 : _messages.isEmpty
-                    ? const Center(child: Text('No messages yet'))
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('🌸', style: TextStyle(fontSize: 48)),
+                            const SizedBox(height: 16),
+                            Text('まだメッセージがありません',
+                                style: TextStyle(fontSize: 15, color: Colors.grey[500])),
+                            Text('No messages yet',
+                                style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+                          ],
+                        ),
+                      )
                     : ListView.builder(
                         reverse: true,
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
                           final message = _messages[_messages.length - 1 - index];
@@ -281,34 +459,59 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
           // Post message input (Visible to Admin only)
           if (isAdmin)
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
               decoration: BoxDecoration(
                 color: Colors.white,
+                border: Border(top: BorderSide(color: _CommunityColors.sakuraPink.withOpacity(0.3))),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 8,
                     offset: const Offset(0, -2),
                   ),
                 ],
               ),
               child: Row(
                 children: [
+                  const Text('🌸', style: TextStyle(fontSize: 20)),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
-                      decoration: const InputDecoration(
-                        hintText: 'Post to community...',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        hintText: 'コミュニティに投稿... Post to community',
+                        hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                        filled: true,
+                        fillColor: _CommunityColors.softPink,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       ),
                       maxLines: null,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: _postMessage,
-                    color: JapaneseColors.wakatake,
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: _postMessage,
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [_CommunityColors.sakuraPink, Color(0xFFFF8FAB)],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _CommunityColors.sakuraPink.withOpacity(0.5),
+                            blurRadius: 6, offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                    ),
                   ),
                 ],
               ),
@@ -335,77 +538,118 @@ class _MessageBubble extends ConsumerWidget {
     final user = ref.watch(currentUserProvider).value;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Message content
+          // Avatar
           Container(
-            padding: const EdgeInsets.all(12),
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
-              color: JapaneseColors.sakura,
-              borderRadius: BorderRadius.circular(12),
+              gradient: const LinearGradient(
+                colors: [_CommunityColors.sakuraPink, Color(0xFFFF8FAB)],
+              ),
+              shape: BoxShape.circle,
             ),
+            child: const Center(child: Text('🌸', style: TextStyle(fontSize: 18))),
+          ),
+          const SizedBox(width: 10),
+          // Bubble + meta
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  message.content,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 8),
+                // Time header
                 Text(
                   _formatTime(message.createdAt),
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[400]),
                 ),
+                const SizedBox(height: 4),
+                // Message bubble
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                      bottomRight: Radius.circular(16),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _CommunityColors.sakuraPink.withOpacity(0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(
+                      color: _CommunityColors.sakuraPink.withOpacity(0.25),
+                    ),
+                  ),
+                  child: Text(
+                    message.content,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: _CommunityColors.sumi,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                // Reactions row
+                if (message.reactions.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    children: message.reactions.entries.map((entry) {
+                      final emoji = entry.key;
+                      final users = entry.value;
+                      final hasReacted = user != null && users.contains(user.id);
+
+                      return GestureDetector(
+                        onTap: () async {
+                          try {
+                            final apiClient = ref.read(apiClientProvider);
+                            await apiClient.toggleReaction(message.id, emoji);
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to toggle reaction: $e')),
+                              );
+                            }
+                          }
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: hasReacted
+                                ? _CommunityColors.sakuraPink.withOpacity(0.25)
+                                : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: hasReacted
+                                  ? _CommunityColors.sakuraPink
+                                  : Colors.grey[300]!,
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Text(
+                            '$emoji ${users.length}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: hasReacted ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ],
             ),
           ),
-          // Reactions
-          if (message.reactions.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: message.reactions.entries.map((entry) {
-                final emoji = entry.key;
-                final users = entry.value;
-                final hasReacted = user != null && users.contains(user.id);
-
-                return GestureDetector(
-                  onTap: () async {
-                    try {
-                      final apiClient = ref.read(apiClientProvider);
-                      await apiClient.toggleReaction(message.id, emoji);
-                      // Refresh would happen here via state management
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to toggle reaction: $e')),
-                        );
-                      }
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: hasReacted
-                          ? JapaneseColors.wakatake.withOpacity(0.2)
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: hasReacted ? JapaneseColors.wakatake : Colors.transparent,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Text(
-                      '$emoji ${users.length}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
         ],
       ),
     );
@@ -416,11 +660,13 @@ class _MessageBubble extends ConsumerWidget {
     final diff = now.difference(time);
 
     if (diff.inMinutes < 1) {
-      return 'Just now';
+      return 'たった今 Just now';
     } else if (diff.inHours < 1) {
-      return '${diff.inMinutes}m ago';
+      return '${diff.inMinutes}分前 ${diff.inMinutes}m ago';
     } else if (diff.inDays < 1) {
-      return '${diff.inHours}h ago';
+      return '${diff.inHours}時間前 ${diff.inHours}h ago';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}日前 ${diff.inDays}d ago';
     } else {
       return '${time.day}/${time.month}/${time.year}';
     }

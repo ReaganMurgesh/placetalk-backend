@@ -30,7 +30,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   scaffoldBackgroundColor: JapaneseColors.shironeri,
   
   // Color scheme
-  colorScheme: ColorScheme.light(
+  colorScheme: const ColorScheme.light(
     primary: JapaneseColors.wakatake,
     secondary: JapaneseColors.kogane,
     surface: Colors.white,
@@ -43,7 +43,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   
   // Typography
   fontFamily: 'NotoSansJP',
-  textTheme: TextTheme(
+  textTheme: const TextTheme(
     displayLarge: TextStyle(
       fontSize: 32,
       fontWeight: FontWeight.w600,
@@ -78,7 +78,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   ),
   
   // App bar theme
-  appBarTheme: AppBarTheme(
+  appBarTheme: const AppBarTheme(
     backgroundColor: Colors.white,
     foregroundColor: JapaneseColors.sumi,
     elevation: 0,
@@ -91,7 +91,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   ),
   
   // Floating action button
-  floatingActionButtonTheme: FloatingActionButtonThemeData(
+  floatingActionButtonTheme: const FloatingActionButtonThemeData(
     backgroundColor: JapaneseColors.wakatake,
     foregroundColor: Colors.white,
     elevation: 4,
@@ -116,11 +116,11 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: JapaneseColors.cloudGray),
+      borderSide: const BorderSide(color: JapaneseColors.cloudGray),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: JapaneseColors.wakatake, width: 2),
+      borderSide: const BorderSide(color: JapaneseColors.wakatake, width: 2),
     ),
   ),
   
@@ -138,7 +138,7 @@ ThemeData get japaneseMiyabiTheme => ThemeData(
   // Chip theme
   chipTheme: ChipThemeData(
     backgroundColor: JapaneseColors.sakura,
-    labelStyle: TextStyle(color: JapaneseColors.sumi),
+    labelStyle: const TextStyle(color: JapaneseColors.sumi),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
   ),
 );

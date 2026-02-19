@@ -36,11 +36,14 @@ export class PinsService {
         // }
 
         // Step 2: Calculate expiration
-        // Community pins do not expire (or set to 100 years)
-        // Normal pins expire in 72 hours
-        let expiresAt: Date | null = null;
+        // Community pins: 100 years (essentially permanent)
+        // Normal pins: 72 hours
+        let expiresAt: Date;
 
-        if (data.pinCategory !== 'community') {
+        if (data.pinCategory === 'community') {
+            // Community pins last 100 years (essentially permanent)
+            expiresAt = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+        } else {
             expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);
         }
 

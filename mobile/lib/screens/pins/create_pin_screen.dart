@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:confetti/confetti.dart';
 import 'package:placetalk/services/location_service.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
@@ -29,10 +30,14 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   bool _respectsPrivacy = false;
   bool _followsGuidelines = false;
   bool _noPrivateProperty = false;
+  
+  // Confetti controller
+  late ConfettiController _confettiController;
 
   @override
   void initState() {
     super.initState();
+    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
     _getCurrentLocation();
   }
 
@@ -42,6 +47,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
     _directionsController.dispose();
     _detailsController.dispose();
     _rulesController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
@@ -178,13 +184,70 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       ref.read(discoveryProvider.notifier).addCreatedPin(pin);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('📍 Pin "${pin.title}" created safely! Thank you for respecting privacy.'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+        // Play confetti celebration!
+        _confettiController.play();
+        
+        // Show success dialog with confetti
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                title: const Row(
+                  children: [
+                    Text('🎉', style: TextStyle(fontSize: 32)),
+                    SizedBox(width: 12),
+                    Text('Pin Created!'),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '"${pin.title}"',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _pinCategory == 'community' 
+                          ? '🏛️ Community pin created! Others can discover this forever.'
+                          : '📍 Pin created! Others can discover this for 72 hours.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+                actions: [
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Awesome!'),
+                  ),
+                ],
+              ),
+              ConfettiWidget(
+                confettiController: _confettiController,
+                blastDirectionality: BlastDirectionality.explosive,
+                maxBlastForce: 20,
+                minBlastForce: 8,
+                emissionFrequency: 0.05,
+                numberOfParticles: 30,
+                gravity: 0.2,
+                colors: const [
+                  Colors.green,
+                  Colors.blue,
+                  Colors.pink,
+                  Colors.orange,
+                  Colors.purple,
+                  Colors.yellow,
+                ],
+              ),
+            ],
           ),
         );
+        
         Navigator.pop(context, true);
       }
     } catch (e) {

@@ -4,7 +4,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/services/location_service.dart';
-import 'package:placetalk/models/pin.dart';
 
 /// Proximity tracking service provider
 final proximityTrackingProvider =
