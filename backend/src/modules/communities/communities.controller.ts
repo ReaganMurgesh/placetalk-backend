@@ -117,8 +117,10 @@ export async function communitiesRoutes(fastify: FastifyInstance) {
                     return reply.code(404).send({ error: 'Community not found' });
                 }
 
-                if (community.createdBy !== userId && userRole !== 'admin') {
-                    return reply.code(403).send({ error: 'Only the Community Admin can post updates.' });
+                // Allow: system admin, community creator, or any community member
+                const isMember = await communitiesService.isMember(communityId, userId);
+                if (community.createdBy !== userId && userRole !== 'admin' && !isMember) {
+                    return reply.code(403).send({ error: 'Join the community to post messages.' });
                 }
 
                 const message = await communitiesService.postMessage(

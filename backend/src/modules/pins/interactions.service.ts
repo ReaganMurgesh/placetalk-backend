@@ -13,14 +13,14 @@ export class InteractionsService {
         try {
             await client.query('BEGIN');
 
-            // Check if pin exists and is active
+            // Check if pin exists and is not deleted (expires_at NOT checked - expired pins can still be liked)
             const pinCheck = await client.query(
-                'SELECT id, like_count, dislike_count FROM pins WHERE id = $1 AND is_deleted = FALSE AND expires_at > NOW()',
+                'SELECT id, like_count, dislike_count FROM pins WHERE id = $1 AND is_deleted = FALSE',
                 [pinId]
             );
 
             if (pinCheck.rows.length === 0) {
-                throw new Error('Pin not found or expired');
+                throw new Error('Pin not found');
             }
 
             // Check existing interaction

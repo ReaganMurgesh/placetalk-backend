@@ -180,6 +180,17 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
         pinCategory: _pinCategory,
       );
 
+      // For community pins: auto-create/join the community chat room
+      if (_pinCategory == 'community') {
+        try {
+          // findOrCreateCommunity also auto-joins the creator
+          await apiClient.findOrCreateCommunity(_titleController.text.trim());
+        } catch (e) {
+          // Non-fatal — pin is already created, community creation is best-effort
+          print('⚠️ Community auto-create failed: $e');
+        }
+      }
+
       // Add to local state too
       ref.read(discoveryProvider.notifier).addCreatedPin(pin);
 

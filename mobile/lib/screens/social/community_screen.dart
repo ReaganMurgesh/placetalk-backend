@@ -278,6 +278,8 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
   List<CommunityMessage> _messages = [];
   bool _isLoading = true;
   bool _notificationsEnabled = false; // Default OFF
+  bool _isMember = false; // Has user joined this community?
+  bool _isJoining = false;
   final _messageController = TextEditingController();
 
   @override
@@ -285,6 +287,7 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
     super.initState();
     _loadMessages();
     _loadNotificationPref();
+    _checkMembership();
   }
 
   Future<void> _loadNotificationPref() async {
@@ -292,6 +295,45 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
     setState(() {
       _notificationsEnabled = prefs.getBool('notify_community_${widget.community.id}') ?? false;
     });
+  }
+
+  Future<void> _checkMembership() async {
+    try {
+      final user = ref.read(currentUserProvider).value;
+      if (user == null) return;
+      // Creator is always a member
+      if (user.id == widget.community.createdBy) {
+        setState(() => _isMember = true);
+        return;
+      }
+      // Check if in joined communities list
+      final apiClient = ref.read(apiClientProvider);
+      final joined = await apiClient.getJoinedCommunities();
+      final ids = joined.map((c) => c['id'] as String? ?? '').toSet();
+      if (mounted) setState(() => _isMember = ids.contains(widget.community.id));
+    } catch (_) {}
+  }
+
+  Future<void> _joinCommunity() async {
+    setState(() => _isJoining = true);
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.joinCommunity(widget.community.id);
+      setState(() { _isMember = true; _isJoining = false; });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('🌸 コミュニティに参加しました！ Joined community!'),
+              backgroundColor: Color(0xFFFFB7C5)),
+        );
+      }
+    } catch (e) {
+      setState(() => _isJoining = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to join: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadMessages() async {
@@ -334,8 +376,10 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).value;
-    // Admin = System Admin OR Community Creator
-    final isAdmin = user?.role == 'admin' || user?.id == widget.community.createdBy;
+    // isAdmin = creator badge display only
+    final isCreator = user?.role == 'admin' || user?.id == widget.community.createdBy;
+    // canPost = creator + members
+    final canPost = isCreator || _isMember;
 
     return Scaffold(
       backgroundColor: _CommunityColors.washi,
@@ -407,7 +451,7 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (isAdmin)
+                if (isCreator)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -417,6 +461,20 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
                     ),
                     child: const Text('管理者 Admin',
                         style: TextStyle(fontSize: 11, color: _CommunityColors.bambooGreen, fontWeight: FontWeight.w600)),
+                  ),
+                if (!isCreator && !_isMember)
+                  GestureDetector(
+                    onTap: _isJoining ? null : _joinCommunity,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _CommunityColors.sakuraPink,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: _isJoining
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('参加 Join', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700)),
+                    ),
                   ),
               ],
             ),
@@ -449,8 +507,8 @@ class _CommunityPageState extends ConsumerState<CommunityPage> {
                         },
                       ),
           ),
-          // Post message input (Visible to Admin only)
-          if (isAdmin)
+          // Post message input — visible to members and creator
+          if (canPost)
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
               decoration: BoxDecoration(

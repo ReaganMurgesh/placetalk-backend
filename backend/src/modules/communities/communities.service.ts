@@ -71,8 +71,8 @@ export class CommunitiesService {
                     COALESCE(c.created_by, '00000000-0000-0000-0000-000000000000') AS "createdBy", 
                     c.created_at AS "createdAt", c.updated_at AS "updatedAt"
              FROM communities c
-             LEFT JOIN community_members cm ON c.id = cm.community_id
-             WHERE cm.user_id = $1 OR c.name = 'PlaceTalk Global'
+             LEFT JOIN community_members cm ON c.id = cm.community_id AND cm.user_id = $1
+             WHERE cm.user_id = $1 OR c.created_by = $1 OR c.name = 'PlaceTalk Global'
              ORDER BY c.created_at DESC`,
             [userId]
         );
