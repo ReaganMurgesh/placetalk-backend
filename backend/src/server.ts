@@ -19,7 +19,7 @@ const fastify = Fastify({
     },
 });
 
-console.log('🚀 PlaceTalk Server Starting... v2.1 (Middleware Fixes Applied)');
+console.log('🚀 PlaceTalk Server Starting... v2.9 (DB Retry + Interaction Fixes)');
 
 // Register plugins
 await fastify.register(cors, {
@@ -49,7 +49,7 @@ fastify.get('/health', async () => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
-        version: '2.4-discovery-fix'
+        version: '2.9-db-retry'
     };
 });
 

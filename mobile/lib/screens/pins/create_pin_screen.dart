@@ -496,6 +496,23 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                       const SizedBox(width: 8),
                       Text('Privacy & Safety Checklist', 
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red[700])),
+                      const Spacer(),
+                      // Show progress count
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _canCreatePin() ? Colors.green : Colors.red[100],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${[_isPublicSpace, _respectsPrivacy, _followsGuidelines, _noPrivateProperty].where((b) => b).length}/4',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _canCreatePin() ? Colors.white : Colors.red[700],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -544,6 +561,34 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
 
             const SizedBox(height: 32),
 
+            // Helper text showing WHY button is disabled
+            if (!_canCreatePin() && !_isLoading)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700], size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _currentPosition == null
+                              ? 'Waiting for GPS... Walk outside for better signal.'
+                              : 'Tick all ${[_isPublicSpace, _respectsPrivacy, _followsGuidelines, _noPrivateProperty].where((b) => !b).length} remaining checkbox(es) above to enable the button.',
+                          style: TextStyle(fontSize: 13, color: Colors.orange[800]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             // Create Button
             Container(
               height: 56,
@@ -575,7 +620,9 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             ),
               const SizedBox(height: 12),
               Text(
-                'Pin visible to users within 50m for 72 hours',
+                _pinCategory == 'community'
+                    ? '🏛️ Community pin — permanent, links to a community chat room'
+                    : 'Pin visible to users within 50m for 72 hours',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 textAlign: TextAlign.center,
               ),

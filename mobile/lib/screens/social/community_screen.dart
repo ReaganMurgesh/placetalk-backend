@@ -24,12 +24,81 @@ final communitiesProvider = FutureProvider<List<Community>>((ref) async {
 class CommunityListScreen extends ConsumerWidget {
   const CommunityListScreen({super.key});
 
+  void _showCreateCommunityDialog(BuildContext context, WidgetRef ref) {
+    final nameController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Text('🌸', style: TextStyle(fontSize: 24)),
+            SizedBox(width: 8),
+            Text('Create Community'),
+          ],
+        ),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Community Name',
+            hintText: 'e.g. Osaka Street Art',
+            filled: true,
+            fillColor: const Color(0xFFFFF0F5),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          maxLength: 60,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _CommunityColors.sakuraPink),
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(ctx);
+              try {
+                final apiClient = ref.read(apiClientProvider);
+                await apiClient.findOrCreateCommunity(name);
+                ref.invalidate(communitiesProvider); // Refresh the list
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('🌸 Community "$name" ready!'),
+                      backgroundColor: _CommunityColors.sakuraPink,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Create', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final communitiesAsync = ref.watch(communitiesProvider);
 
     return Scaffold(
       backgroundColor: _CommunityColors.washi,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showCreateCommunityDialog(context, ref),
+        backgroundColor: _CommunityColors.sakuraPink,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('コミュニティ作成', style: TextStyle(color: Colors.white, fontSize: 13)),
+      ),
       body: CustomScrollView(
         slivers: [
           // Decorative Japanese header
@@ -114,8 +183,9 @@ class CommunityListScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Join a community to start connecting',
+                            'Tap ＋ below to create your first community,\nor create a Community Pin on the Map screen.',
                             style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                            textAlign: TextAlign.center,
                           ),
                         ],
                       ),
