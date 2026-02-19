@@ -11,7 +11,7 @@ console.log('DB Connection:', connectionString ? `Using DATABASE_URL (${connecti
 const poolOptions = connectionString
     ? {
         connectionString,
-        ssl: connectionString.includes('render.com') || connectionString.includes('amazonaws.com') || process.env.DATABASE_SSL === 'true'
+        ssl: connectionString.includes('render.com') || connectionString.includes('amazonaws.com') || connectionString.includes('singapore-postgres') || process.env.DATABASE_SSL === 'true'
             ? { rejectUnauthorized: false }
             : false,
         max: 10,
