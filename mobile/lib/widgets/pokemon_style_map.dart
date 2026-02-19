@@ -73,6 +73,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   bool _isFetchingRoute = false;
   bool _arrivalHandled = false; // Guard: prevent double-logging on arrival
 
+  // Periodic heartbeat timer (fires every 30s when standing still)
+  Timer? _periodicHeartbeat;
+
   @override
   void initState() {
     super.initState();
@@ -97,7 +100,31 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     
     _initCompass();
     _initGps();
-    
+
+    // Periodic heartbeat every 30s — ensures other users' pins load even when standing still
+    _periodicHeartbeat = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _userPosition != null) {
+        ref.read(discoveryProvider.notifier).manualDiscovery().then((_) {
+          if (mounted) {
+            final pins = ref.read(discoveryProvider);
+            final count = {...pins.discoveredPins.map((p) => p.id), ...pins.createdPins.map((p) => p.id)}.length;
+            if (count > 0) {
+              setState(() {
+                _statusText = '\u{1F4CD} $count pin${count != 1 ? 's' : ''} nearby!';
+              });
+            }
+          }
+        }).catchError((_) {});
+      }
+    });
+
+    // Retry startup load after 5s in case Render was cold-starting
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted) {
+        ref.read(discoveryProvider.notifier).loadNearbyPins();
+      }
+    });
+
     // Load existing pins from backend on startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(discoveryProvider.notifier).loadNearbyPins();
@@ -108,6 +135,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   void dispose() {
     _compassSub?.cancel();
     _gpsSub?.cancel();
+    _periodicHeartbeat?.cancel();
     _pulseCtrl.dispose();
     _bounceCtrl.dispose();
     _mapController.dispose();
@@ -274,20 +302,29 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       _navTargetPin = pin;
     });
     
-    // Fetch route
-    final route = await _navService.getRoute(
-      _userPosition!,
-      LatLng(pin.lat, pin.lon),
-    );
+    // Fetch route from OSRM; fallback to straight line if unavailable
+    List<LatLng> route = [];
+    try {
+      route = await _navService.getRoute(
+        _userPosition!,
+        LatLng(pin.lat, pin.lon),
+      );
+    } catch (_) {}
+
+    // Fallback: straight line if route is empty
+    if (route.isEmpty) {
+      route = [_userPosition!, LatLng(pin.lat, pin.lon)];
+    }
     
     if (mounted) {
       setState(() {
         _navigationPath = route;
         _isNavigating = true;
         _isFetchingRoute = false;
+        _arrivalHandled = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('🗺️ Path found! Let\'s go!'), backgroundColor: Colors.cyan),
+        const SnackBar(content: Text('🗺️ Route set! Walk towards the pin!'), backgroundColor: Colors.cyan),
       );
     }
   }
@@ -1043,8 +1080,25 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // PIN LIST
   // ──────────────────────────────────────────────
   void _showPinList() {
-    final discoveredPins = ref.read(discoveryProvider).discoveredPins;
-    
+    // Combine discovered + created, deduplicated (same logic as map markers)
+    final state = ref.read(discoveryProvider);
+    final Set<String> seen = {};
+    final List<Pin> allPins = [];
+    for (final pin in [...state.discoveredPins, ...state.createdPins]) {
+      if (!seen.contains(pin.id)) {
+        seen.add(pin.id);
+        allPins.add(pin);
+      }
+    }
+    // Sort by distance
+    if (_userPosition != null) {
+      allPins.sort((a, b) {
+        final da = Geolocator.distanceBetween(_userPosition!.latitude, _userPosition!.longitude, a.lat, a.lon);
+        final db = Geolocator.distanceBetween(_userPosition!.latitude, _userPosition!.longitude, b.lat, b.lon);
+        return da.compareTo(db);
+      });
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1064,34 +1118,40 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               child: Column(children: [
                 Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
                 const SizedBox(height: 12),
-                Text('Discovered Pins (${discoveredPins.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('Pins (${allPins.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               ]),
             ),
             Expanded(
-              child: discoveredPins.isEmpty
+              child: allPins.isEmpty
                   ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.explore_off, size: 48, color: Colors.grey),
                       SizedBox(height: 8),
-                      Text('No pins discovered yet. Walk around to find pins!', style: TextStyle(color: Colors.grey)),
+                      Text('No pins yet. Create one or walk to discover!', style: TextStyle(color: Colors.grey)),
                     ]))
                   : ListView.builder(
                       controller: sc,
-                      itemCount: discoveredPins.length,
+                      itemCount: allPins.length,
                       itemBuilder: (ctx, i) {
-                        final pin = discoveredPins[i];
+                        final pin = allPins[i];
                         final dist = _userPosition != null
                             ? Geolocator.distanceBetween(
                                 _userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon)
                             : 0.0;
-                        
+                        final currentUser = ref.read(currentUserProvider).value;
+                        final isOwn = currentUser != null && pin.createdBy == currentUser.id;
+
                         return ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: pin.type == 'location' ? Colors.green.withOpacity(0.1) : Colors.purple.withOpacity(0.1),
-                            child: Icon(pin.type == 'location' ? Icons.place : Icons.auto_awesome,
-                              color: pin.type == 'location' ? Colors.green : Colors.purple),
+                            backgroundColor: isOwn
+                                ? Colors.blue.withOpacity(0.1)
+                                : (pin.type == 'location' ? Colors.green.withOpacity(0.1) : Colors.purple.withOpacity(0.1)),
+                            child: Icon(
+                              isOwn ? Icons.person_pin_circle : (pin.type == 'location' ? Icons.place : Icons.auto_awesome),
+                              color: isOwn ? Colors.blue : (pin.type == 'location' ? Colors.green : Colors.purple),
+                            ),
                           ),
                           title: Text(pin.title, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('${dist.toInt()}m away • ${pin.likeCount} likes'),
+                          subtitle: Text('${dist.toInt()}m away • ${pin.likeCount} likes${isOwn ? " • Mine" : ""}'),
                           trailing: dist <= 50.0
                               ? Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

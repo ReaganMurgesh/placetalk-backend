@@ -255,19 +255,29 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
 
       Position position = await _locationService.getCurrentPosition();
 
-      // Load all pins within discovery range from backend
+      // Load nearby pins from backend
       List<Pin> nearbyPins = await _apiClient.getNearbyPins(
         lat: position.latitude,
         lon: position.longitude,
       );
 
+      // Also load user's own created pins so they persist across restarts
+      List<Pin> myPins = [];
+      try {
+        myPins = await _apiClient.getMyPins();
+        print('🔄 Loaded ${myPins.length} own pins from backend');
+      } catch (e) {
+        print('⚠️ Could not load own pins on startup: $e');
+      }
+
       state = state.copyWith(
         discoveredPins: nearbyPins,
+        createdPins: myPins,
         lastPosition: position,
         lastDiscoveryTime: DateTime.now(),
       );
 
-      print('🔄 Initial load → ${nearbyPins.length} pins restored from database');
+      print('🔄 Initial load → ${nearbyPins.length} nearby + ${myPins.length} own pins loaded');
     } catch (e) {
       print('❌ Failed to load nearby pins: $e');
       // Don't rethrow - allow app to continue even if load fails
