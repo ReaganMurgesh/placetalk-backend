@@ -71,6 +71,46 @@ class Pin {
   bool get isLocationPin => type == 'location';
   bool get isSerendipityPin => type == 'serendipity';
   bool get isCommunityPin => pinCategory == 'community';
+
+  Pin copyWith({
+    String? id,
+    String? title,
+    String? directions,
+    String? details,
+    double? lat,
+    double? lon,
+    String? type,
+    String? pinCategory,
+    String? attributeId,
+    String? createdBy,
+    DateTime? expiresAt,
+    int? likeCount,
+    int? dislikeCount,
+    DateTime? createdAt,
+    double? distance,
+    bool? isHidden,
+    bool? isDeprioritized,
+  }) {
+    return Pin(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      directions: directions ?? this.directions,
+      details: details ?? this.details,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      type: type ?? this.type,
+      pinCategory: pinCategory ?? this.pinCategory,
+      attributeId: attributeId ?? this.attributeId,
+      createdBy: createdBy ?? this.createdBy,
+      expiresAt: expiresAt ?? this.expiresAt,
+      likeCount: likeCount ?? this.likeCount,
+      dislikeCount: dislikeCount ?? this.dislikeCount,
+      createdAt: createdAt ?? this.createdAt,
+      distance: distance ?? this.distance,
+      isHidden: isHidden ?? this.isHidden,
+      isDeprioritized: isDeprioritized ?? this.isDeprioritized,
+    );
+  }
   
   String get distanceText {
     if (distance == null) return '';

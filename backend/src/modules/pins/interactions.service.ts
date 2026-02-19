@@ -164,10 +164,10 @@ export class InteractionsService {
      */
     async hidePin(userId: string, pinId: string): Promise<void> {
         await pool.query(
-            `INSERT INTO user_pin_interactions (user_id, pin_id, is_muted, last_seen_at)
+            `INSERT INTO user_pin_interactions (user_id, pin_id, is_muted, last_interaction_at)
        VALUES ($1, $2, TRUE, NOW())
        ON CONFLICT (user_id, pin_id) 
-       DO UPDATE SET is_muted = TRUE, updated_at = NOW()`,
+       DO UPDATE SET is_muted = TRUE, last_interaction_at = NOW(), updated_at = NOW()`,
             [userId, pinId]
         );
     }

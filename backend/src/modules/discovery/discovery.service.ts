@@ -77,8 +77,11 @@ export class DiscoveryService {
         ST_Distance(
           p.location::geography,
           ST_MakePoint($1, $2)::geography
-        ) AS distance
+        ) AS distance,
+        COALESCE(upi.is_muted, FALSE) AS is_muted
       FROM pins p
+      LEFT JOIN user_pin_interactions upi
+        ON upi.pin_id = p.id AND upi.user_id = $5
       WHERE p.is_deleted = FALSE
         AND (
           p.expires_at IS NULL          -- Community pins never expire
@@ -94,9 +97,10 @@ export class DiscoveryService {
           ST_MakePoint($1, $2)::geography,
           $4
         )
+        AND COALESCE(upi.is_muted, FALSE) = FALSE
       ORDER BY distance ASC
       `,
-                [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS]
+                [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS, userId]
             );
 
             console.log(`📊 Database returned ${result.rows.length} pins`);
@@ -124,7 +128,10 @@ export class DiscoveryService {
                     pinCategory: row.pin_category,
                     attributeId: row.attribute_id,
                     createdBy: row.created_by,
-                    isHidden: false, // Simplified - no muting for now
+                    likeCount: parseInt(row.likeCount) || 0,
+                    dislikeCount: parseInt(row.reportCount) || 0,
+                    createdAt: new Date().toISOString(),
+                    isHidden: false,
                     isDeprioritized: isDeprioritized,
                 };
             });
@@ -153,14 +160,10 @@ export class DiscoveryService {
                 [userId, pinId, Math.round(distance)]
             );
 
-            // 2. If new discovery, log to user_activities (Diary)
+            // Only log to discoveries table for analytics (NOT to user_activities)
+            // 'visited' is only logged when user navigates via Let's Explore AND arrives
             if ((result.rowCount || 0) > 0) {
-                await pool.query(
-                    `INSERT INTO user_activities (user_id, pin_id, activity_type, metadata)
-           VALUES ($1, $2, 'visited', $3)`,
-                    [userId, pinId, JSON.stringify({ distance: Math.round(distance) })]
-                );
-                console.log(`  ✨ New discovery logged: Pin ${pinId} for user ${userId}`);
+                console.log(`  ✨ New proximity logged: Pin ${pinId} for user ${userId} at ${Math.round(distance)}m`);
             }
         } catch (error) {
             console.error('Failed to log discovery:', error);

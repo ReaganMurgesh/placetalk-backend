@@ -263,13 +263,6 @@ class _CommunityCard extends StatelessWidget {
     );
   }
 }
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // Import this in the CommunityPage
 class CommunityPage extends ConsumerStatefulWidget {

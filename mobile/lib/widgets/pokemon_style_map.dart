@@ -71,6 +71,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   Pin? _navTargetPin;
   bool _isNavigating = false;
   bool _isFetchingRoute = false;
+  bool _arrivalHandled = false; // Guard: prevent double-logging on arrival
 
   @override
   void initState() {
@@ -172,12 +173,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         }
 
         // Navigation Arrival Check (< 15m)
-        if (_isNavigating && _navTargetPin != null) {
+        if (_isNavigating && _navTargetPin != null && !_arrivalHandled) {
           final distToTarget = Geolocator.distanceBetween(
             pos.latitude, pos.longitude,
             _navTargetPin!.lat, _navTargetPin!.lon,
           );
           if (distToTarget < 15.0) {
+            _arrivalHandled = true; // Prevent re-entry
             _handleArrival(_navTargetPin!);
           }
         }
@@ -295,6 +297,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       _isNavigating = false;
       _navigationPath = [];
       _navTargetPin = null;
+      _arrivalHandled = false; // Reset guard for next navigation
     });
   }
 
@@ -538,40 +541,24 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   Widget _buildPinMarkers(DiscoveryState state) {
     if (_userPosition == null) return const SizedBox();
     
-    // Use discoveredPins from heartbeat/loadNearbyPins
-    final discoveredPins = state.discoveredPins;
+    // Combine discovered + own created pins into a deduplicated list  
+    final Set<String> pinIds = {};
+    final List<Pin> allCandidatePins = [];
+    for (final pin in [...state.discoveredPins, ...state.createdPins]) {
+      if (!pinIds.contains(pin.id)) {
+        pinIds.add(pin.id);
+        allCandidatePins.add(pin);
+      }
+    }
     
-    // Also get user's own created pins - these should ALWAYS show on map!
-    final userCreatedPins = state.createdPins;
-    
-    // Merge: nearby discovered pins + all user's own pins
-    final nearbyDiscovered = discoveredPins.where((pin) {
+    // STRICT 50m filter: ALL pins must be within 50m — no exceptions
+    final nearbyPins = allCandidatePins.where((pin) {
       final dist = Geolocator.distanceBetween(
         _userPosition!.latitude, _userPosition!.longitude,
         pin.lat, pin.lon,
       );
-      return dist <= 50; // Show within 50m on map
+      return dist <= 50.0;
     }).toList();
-    
-    // Combine with user's created pins (always visible regardless of distance)
-    final Set<String> pinIds = {};
-    final List<Pin> nearbyPins = [];
-    
-    // Add nearby discovered pins
-    for (final pin in nearbyDiscovered) {
-      if (!pinIds.contains(pin.id)) {
-        pinIds.add(pin.id);
-        nearbyPins.add(pin);
-      }
-    }
-    
-    // Add user's own pins (always visible, marked with special indicator)
-    for (final pin in userCreatedPins) {
-      if (!pinIds.contains(pin.id)) {
-        pinIds.add(pin.id);
-        nearbyPins.add(pin);
-      }
-    }
 
     if (nearbyPins.isEmpty) return const SizedBox();
 
@@ -589,8 +576,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         );
         final isInRange = dist <= 50;
         
-        // Check if this is the user's own pin (created by them)
-        final isOwnPin = userCreatedPins.any((p) => p.id == pin.id);
+        // Check if this is the user's own pin
+        final currentUser = ref.read(currentUserProvider).value;
+        final isOwnPin = currentUser != null && pin.createdBy == currentUser.id;
         
         // Minimalist Visual Rules
         final isHidden = pin.isHidden ?? false;
@@ -883,12 +871,20 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   onTap: () async {
                     try {
                       await ref.read(apiClientProvider).likePin(pin.id);
+                      ref.read(discoveryProvider.notifier).incrementLikeLocally(pin.id);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Liked!'), backgroundColor: Colors.green));
-                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('👍 Liked!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
+                        );
                       }
-                    } catch (_) {}
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to like: ${e.toString()}'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
                   },
                 ),
                 // HIDE (Personal)
@@ -899,12 +895,21 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   onTap: () async {
                     try {
                       await ref.read(apiClientProvider).hidePin(pin.id);
+                      // Immediately remove from local state (optimistic)
+                      ref.read(discoveryProvider.notifier).hidePinLocally(pin.id);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pin Hidden (Personal)')));
-                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Pin hidden'), duration: Duration(seconds: 2)),
+                        );
                       }
-                    } catch (_) {}
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to hide: ${e.toString()}'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
                   },
                 ),
                 // REPORT (Global)
@@ -917,10 +922,17 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                       await ref.read(apiClientProvider).reportPin(pin.id);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reported to Community'), backgroundColor: Colors.redAccent));
-                        ref.read(discoveryProvider.notifier).manualDiscovery(); // Refresh
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Reported — pin creator notified'), backgroundColor: Colors.redAccent, duration: Duration(seconds: 3)),
+                        );
                       }
-                    } catch (_) {}
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to report: ${e.toString()}'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
                   },
                 ),
               ],

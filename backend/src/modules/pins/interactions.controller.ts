@@ -45,12 +45,27 @@ export async function interactionsRoutes(fastify: FastifyInstance) {
         async (request: any, reply) => {
             try {
                 const pinId = request.params.id;
-                const userId = request.user.userId; // Remove fallback
+                const userId = request.user.userId;
 
                 const result = await interactionsService.reportPin(userId, pinId);
 
-                // Log to Diary
+                // Log to reporter's diary
                 diaryService.logActivity(userId, pinId, 'reported').catch(e => console.error('Diary Log/Report Error:', e));
+
+                // ALSO notify the pin creator: log 'reported' in their diary
+                try {
+                    const { pool } = await import('../../config/database.js');
+                    const pinRow = await pool.query('SELECT created_by FROM pins WHERE id = $1', [pinId]);
+                    if (pinRow.rows.length > 0) {
+                        const creatorId = pinRow.rows[0].created_by;
+                        if (creatorId !== userId) {
+                            diaryService.logActivity(creatorId, pinId, 'reported', { reportedBy: userId })
+                                .catch(e => console.error('Creator diary notification error:', e));
+                        }
+                    }
+                } catch (e) {
+                    console.error('Creator notification lookup error:', e);
+                }
 
                 return reply.send(result);
             } catch (error: any) {

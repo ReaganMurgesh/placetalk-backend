@@ -134,6 +134,29 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
     }
   }
 
+  /// Immediately remove a hidden pin from local state (optimistic update)
+  void hidePinLocally(String pinId) {
+    state = state.copyWith(
+      discoveredPins: state.discoveredPins.where((p) => p.id != pinId).toList(),
+      createdPins: state.createdPins.where((p) => p.id != pinId).toList(),
+    );
+    print('👁️ Pin $pinId hidden locally');
+  }
+
+  /// Update like count for a pin in local state (optimistic update)
+  void incrementLikeLocally(String pinId) {
+    state = state.copyWith(
+      discoveredPins: state.discoveredPins.map((p) {
+        if (p.id == pinId) return p.copyWith(likeCount: p.likeCount + 1);
+        return p;
+      }).toList(),
+      createdPins: state.createdPins.map((p) {
+        if (p.id == pinId) return p.copyWith(likeCount: p.likeCount + 1);
+        return p;
+      }).toList(),
+    );
+  }
+
   /// Add a user-created pin
   void addCreatedPin(Pin pin) {
     state = state.copyWith(
