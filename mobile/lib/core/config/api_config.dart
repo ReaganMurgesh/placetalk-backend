@@ -30,5 +30,5 @@ class ApiConfig {
 
   // LocationIQ reverse geocoding — get your free key at https://locationiq.com/register
   // Free tier: 5,000 requests/day
-  static const String locationIqKey = ''; // TODO: paste your LocationIQ API key here
+  static const String locationIqKey = 'pk.88dc6ec54b6b8411cbe040b65b2a878b';
 }
