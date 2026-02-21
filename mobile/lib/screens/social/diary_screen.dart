@@ -40,6 +40,25 @@ class DiaryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(diaryStatsProvider);
     final currentUser = ref.watch(currentUserProvider);
+    // Phase 1d: profile snapshot uses timeline to compute ghost + today counts
+    final timelineAsync = ref.watch(diaryTimelineProvider);
+    final today = DateTime.now();
+    final ghostCount = timelineAsync.whenData(
+      (tl) => tl.where((e) => e.activityType == 'ghost_pass').length).value ?? 0;
+    final todayDiscoveries = timelineAsync.whenData(
+      (tl) => tl.where((e) {
+        final ct = e.createdAt;
+        return ct != null &&
+            ct.year == today.year && ct.month == today.month && ct.day == today.day &&
+            (e.activityType == 'discovered' || e.activityType == 'visited');
+      }).length).value ?? 0;
+    final todayGhosts = timelineAsync.whenData(
+      (tl) => tl.where((e) {
+        final ct = e.createdAt;
+        return ct != null &&
+            ct.year == today.year && ct.month == today.month && ct.day == today.day &&
+            e.activityType == 'ghost_pass';
+      }).length).value ?? 0;
 
     return DefaultTabController(
       length: 2,
@@ -163,10 +182,12 @@ class DiaryScreen extends ConsumerWidget {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              // Stats Row - Japanese style
+                              // Stats Row - Japanese style (Phase 1d: 4 stats)
                               statsAsync.when(
-                                data: (stats) => Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                data: (stats) => Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 8,
                                   children: [
                                     _JapaneseStatItem(
                                       kanji: '発見',
@@ -183,12 +204,41 @@ class DiaryScreen extends ConsumerWidget {
                                       label: 'Badges',
                                       value: stats.badges.length.toString(),
                                     ),
+                                    _JapaneseStatItem(
+                                      kanji: '幽',
+                                      label: 'Ghosts',
+                                      value: ghostCount.toString(),
+                                    ),
                                   ],
                                 ),
                                 loading: () => const CircularProgressIndicator(
                                   color: _DiaryColors.akeIro,
                                 ),
                                 error: (_, __) => const SizedBox.shrink(),
+                              ),
+                              const SizedBox(height: 12),
+                              // Phase 1d: Today's Exploration Snapshot
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white.withOpacity(0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text('📅', style: TextStyle(fontSize: 14)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Today — $todayDiscoveries found  👻 $todayGhosts ghosted',
+                                      style: const TextStyle(
+                                        fontSize: 12, fontWeight: FontWeight.w600,
+                                        color: _DiaryColors.sumiIro,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -836,7 +886,9 @@ class _JapaneseTimelineCard extends StatelessWidget {
                 ),
                 child: Center(
                   child: Text(
-                    entry.activityEmoji ?? '🌸',
+                    entry.activityType == 'ghost_pass'
+                        ? '👻'
+                        : (entry.activityEmoji ?? '🌸'),
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
@@ -945,6 +997,8 @@ class _JapaneseTimelineCard extends StatelessWidget {
         return '嫌い';
       case 'visited':
         return '訪問';
+      case 'ghost_pass':
+        return '👻 Ghost Pass';
       default:
         return type?.toUpperCase() ?? '活動';
     }

@@ -30,10 +30,10 @@ class TimelineEntry {
       pinId: json['pinId'],
       activityType: json['activityType'],
       createdAt: DateTime.parse(json['createdAt']),
-      pinTitle: json['pinTitle'],
+      pinTitle: json['pinTitle'] ?? '[Deleted Pin]',
       pinAttribute: json['pinAttribute'],
-      pinLat: json['pinLat'].toDouble(),
-      pinLon: json['pinLon'].toDouble(),
+      pinLat: (json['pinLat'] ?? 0).toDouble(),
+      pinLon: (json['pinLon'] ?? 0).toDouble(),
     );
   }
 
@@ -51,6 +51,10 @@ class TimelineEntry {
         return '🚩';
       case 'hidden':
         return '🙈';
+      case 'ghost_pass':
+        return '👻';
+      case 'discovered':
+        return '🔍';
       default:
         return '📍';
     }
@@ -70,6 +74,10 @@ class TimelineEntry {
         return 'Reported';
       case 'hidden':
         return 'Hidden';
+      case 'ghost_pass':
+        return 'Ghosted';
+      case 'discovered':
+        return 'Discovered';
       default:
         return 'Interacted with';
     }

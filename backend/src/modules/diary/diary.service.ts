@@ -8,7 +8,7 @@ export class DiaryService {
     async logActivity(
         userId: string,
         pinId: string,
-        activityType: 'visited' | 'liked' | 'commented' | 'created' | 'reported' | 'hidden',
+        activityType: 'visited' | 'liked' | 'commented' | 'created' | 'reported' | 'hidden' | 'ghost_pass' | 'discovered',
         metadata?: Record<string, any>
     ): Promise<UserActivity> {
         const result = await pool.query(
@@ -49,9 +49,12 @@ export class DiaryService {
         const result = await pool.query(
             `SELECT ua.id, ua.user_id AS "userId", ua.pin_id AS "pinId", 
                     ua.activity_type AS "activityType", ua.metadata, ua.created_at AS "createdAt",
-                    p.title AS "pinTitle", 'Normal' AS "pinAttribute", ST_Y(p.location::geometry) AS "pinLat", ST_X(p.location::geometry) AS "pinLon"
+                    COALESCE(p.title, '[Deleted Pin]') AS "pinTitle",
+                    'Normal' AS "pinAttribute",
+                    COALESCE(ST_Y(p.location::geometry), 0) AS "pinLat",
+                    COALESCE(ST_X(p.location::geometry), 0) AS "pinLon"
        FROM user_activities ua
-       INNER JOIN pins p ON ua.pin_id = p.id
+       LEFT JOIN pins p ON ua.pin_id = p.id
        -- LEFT JOIN attributes a ON p.attribute_id = a.id
        WHERE ${conditions.join(' AND ')}
        ORDER BY ua.created_at DESC

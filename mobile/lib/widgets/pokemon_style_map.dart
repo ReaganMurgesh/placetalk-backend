@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -75,6 +76,20 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
 
   // Periodic heartbeat timer (fires every 30s when standing still)
   Timer? _periodicHeartbeat;
+
+  // --- Phase 1a: Two-stage detection & Ghost Pins ---
+  final Set<String> _autoPoppedPins = {};
+  final Set<String> _nearbyButNotOpened = {};
+  final Set<String> _ghostRecorded = {};
+
+  // --- Phase 1b: Hex cloud jitter seed cache ---
+  // (computed lazily per pin, cached here so marker doesn't jitter on rebuild)
+  final Map<String, LatLng> _jitterCache = {};
+
+  // --- Phase 1c: Fog of War ---
+  final List<LatLng> _fogClearedPoints = [];
+  LatLng? _lastFogUpdate;
+  bool _fogEnabled = true;
 
   @override
   void initState() {
@@ -200,20 +215,83 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           }
         }
 
-        // Navigation Arrival Check (< 15m)
+        // Navigation Arrival Check (< 20m — matches full-unlock threshold)
         if (_isNavigating && _navTargetPin != null && !_arrivalHandled) {
           final distToTarget = Geolocator.distanceBetween(
             pos.latitude, pos.longitude,
             _navTargetPin!.lat, _navTargetPin!.lon,
           );
-          if (distToTarget < 15.0) {
+          if (distToTarget < 20.0) {
             _arrivalHandled = true; // Prevent re-entry
             _handleArrival(_navTargetPin!);
           }
         }
+
+        // --- Phase 1a: Two-stage auto-popup & ghost pin tracking ---
+        _checkTwoStageProximity(pos);
       },
       onError: (e) => print('❌ GPS error: $e'),
     );
+  }
+
+  // ──────────────────────────────────────────────
+  // TWO-STAGE PROXIMITY CHECK
+  // ──────────────────────────────────────────────
+  void _checkTwoStageProximity(Position pos) {
+    if (!mounted) return;
+    final state = ref.read(discoveryProvider);
+    final Set<String> seenIds = {};
+    final allPins = [...state.discoveredPins, ...state.createdPins];
+    for (final pin in allPins) {
+      if (seenIds.contains(pin.id)) continue;
+      seenIds.add(pin.id);
+
+      final dist = Geolocator.distanceBetween(
+        pos.latitude, pos.longitude,
+        pin.lat, pin.lon,
+      );
+
+      if (dist <= 20.0) {
+        // Mark as "was near but not opened" for ghost pin logic
+        _nearbyButNotOpened.add(pin.id);
+
+        // Auto-popup if not done yet and not navigating to this pin
+        if (!_autoPoppedPins.contains(pin.id)) {
+          _autoPoppedPins.add(pin.id);
+          // Remove from ghost candidate since we are about to open it
+          _nearbyButNotOpened.remove(pin.id);
+          HapticFeedback.vibrate();
+          // Brief delay so the haptic fires first
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (mounted) _showPinSheet(pin, dist, isFullyUnlocked: true);
+          });
+        }
+      } else if (dist > 30.0) {
+        // User moved away — if they were near but never opened, record ghost
+        if (_nearbyButNotOpened.contains(pin.id) && !_ghostRecorded.contains(pin.id)) {
+          _ghostRecorded.add(pin.id);
+          _nearbyButNotOpened.remove(pin.id);
+          _recordGhostPin(pin);
+        }
+        // Allow re-popup if they come back another time
+        if (dist > 50.0) {
+          _autoPoppedPins.remove(pin.id);
+        }
+      }
+    }
+  }
+
+  // Record a ghost pin — user passed within 20m but never opened the sheet
+  Future<void> _recordGhostPin(Pin pin) async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.logActivity(pin.id, 'ghost_pass', metadata: {'source': 'proximity'});
+      ref.invalidate(diaryTimelineProvider);
+      ref.invalidate(diaryStatsProvider);
+      print('👻 Ghost pin recorded for "${pin.title}"');
+    } catch (e) {
+      print('⚠️ Ghost pin log failed: $e');
+    }
   }
 
   void _onNewPosition(Position pos) {
@@ -227,6 +305,20 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     try {
       _mapController.move(newPos, _mapController.camera.zoom);
     } catch (_) {}
+
+    // Phase 1c: record cleared fog area every 8m of movement
+    if (_fogEnabled) {
+      if (_lastFogUpdate == null ||
+          Geolocator.distanceBetween(
+            _lastFogUpdate!.latitude, _lastFogUpdate!.longitude,
+            pos.latitude, pos.longitude,
+          ) > 8.0) {
+        setState(() {
+          _fogClearedPoints.add(newPos);
+          _lastFogUpdate = newPos;
+        });
+      }
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -440,6 +532,10 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               // Pin markers on actual map coordinates
               if (_userPosition != null)
                 _buildPinMarkers(state),
+
+              // Phase 1c: Fog of War overlay
+              if (_fogEnabled)
+                _buildFogLayer(),
             ],
           ),
           
@@ -575,10 +671,54 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     );
   }
 
+  // ─────────────────────────────────────────────
+  // Phase 1b: Hex-cloud jitter helpers
+  // ─────────────────────────────────────────────
+  double _hashAngle(String id) {
+    int h = 0;
+    for (int i = 0; i < id.length; i++) h = (h * 31 + id.codeUnitAt(i)) & 0xFFFFFF;
+    return (h % 360) * pi / 180;
+  }
+
+  double _hashMeters(String id) {
+    int h = 0;
+    for (int i = 0; i < id.length; i++) h = (h * 17 + id.codeUnitAt(i) + 3) & 0xFFFFFF;
+    return 10.0 + (h % 14).toDouble(); // 10–24m offset
+  }
+
+  /// Returns a stable jittered LatLng for locked pins (obscures exact spot)
+  LatLng _jitteredPosition(Pin pin) {
+    return _jitterCache.putIfAbsent(pin.id, () {
+      final a = _hashAngle(pin.id);
+      final d = _hashMeters(pin.id) / 111320.0; // metres → degrees
+      return LatLng(pin.lat + sin(a) * d, pin.lon + cos(a) * d);
+    });
+  }
+
+  /// Groups pins within 6m of each other into clusters
+  List<_PinCluster> _clusterPins(List<Pin> pins) {
+    final clusters = <_PinCluster>[];
+    final assigned = <String>{};
+    for (final pin in pins) {
+      if (assigned.contains(pin.id)) continue;
+      final members = [pin];
+      assigned.add(pin.id);
+      for (final other in pins) {
+        if (assigned.contains(other.id)) continue;
+        if (Geolocator.distanceBetween(pin.lat, pin.lon, other.lat, other.lon) < 6.0) {
+          members.add(other);
+          assigned.add(other.id);
+        }
+      }
+      clusters.add(_PinCluster(representative: pin, members: members));
+    }
+    return clusters;
+  }
+
   Widget _buildPinMarkers(DiscoveryState state) {
     if (_userPosition == null) return const SizedBox();
-    
-    // Combine discovered + own created pins into a deduplicated list  
+
+    // Deduplicate all candidate pins
     final Set<String> pinIds = {};
     final List<Pin> allCandidatePins = [];
     for (final pin in [...state.discoveredPins, ...state.createdPins]) {
@@ -587,8 +727,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         allCandidatePins.add(pin);
       }
     }
-    
-    // STRICT 50m filter: ALL pins must be within 50m — no exceptions
+
+    // 50m outer boundary
     final nearbyPins = allCandidatePins.where((pin) {
       final dist = Geolocator.distanceBetween(
         _userPosition!.latitude, _userPosition!.longitude,
@@ -599,97 +739,146 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
 
     if (nearbyPins.isEmpty) return const SizedBox();
 
-    // 🌟 EXPLORE MODE: If navigating, HIDE all other pins!
+    // EXPLORE MODE: hide non-target pins during navigation
     var displayPins = nearbyPins;
     if (_isNavigating && _navTargetPin != null) {
       displayPins = nearbyPins.where((p) => p.id == _navTargetPin!.id).toList();
     }
 
+    // ── Phase 1b: cluster nearby pins ──
+    final clusters = _clusterPins(displayPins);
+    final currentUser = ref.read(currentUserProvider).value;
+
     return MarkerLayer(
-      markers: displayPins.map((pin) {
+      markers: clusters.map((cluster) {
+        final pin = cluster.representative;
+        final isCluster = cluster.isCluster;
+
         final dist = Geolocator.distanceBetween(
           _userPosition!.latitude, _userPosition!.longitude,
           pin.lat, pin.lon,
         );
-        final isInRange = dist <= 50;
-        
-        // Check if this is the user's own pin
-        final currentUser = ref.read(currentUserProvider).value;
+
+        // Phase 1a unlock stages
+        final isFullyUnlocked = dist <= 20.0;
         final isOwnPin = currentUser != null && pin.createdBy == currentUser.id;
-        
-        // Minimalist Visual Rules
         final isHidden = pin.isHidden ?? false;
         final isDeprioritized = pin.isDeprioritized ?? false;
-        
-        // Base Color - User's own pins get special blue color
-        Color color = isOwnPin 
-            ? const Color(0xFF2196F3) // Blue for own pins
-            : pin.pinCategory == 'community'
-                ? const Color(0xFFFF9800) // Orange for community
-                : (pin.type == 'sensation' ? const Color(0xFF9C27B0) : const Color(0xFF4CAF50));
-            
-        // Deprioritized overrides color to dark grey
-        if (isDeprioritized) {
-          color = Colors.blueGrey;
+
+        // Color logic
+        Color color = isCluster
+            ? const Color(0xFF6C63FF)
+            : isOwnPin
+                ? const Color(0xFF2196F3)
+                : pin.pinCategory == 'community'
+                    ? const Color(0xFFFF9800)
+                    : (pin.type == 'sensation'
+                        ? const Color(0xFF9C27B0)
+                        : const Color(0xFF4CAF50));
+        if (!isFullyUnlocked && !isOwnPin && !isCluster) color = Colors.blueGrey[600]!;
+        if (isDeprioritized) color = Colors.blueGrey;
+
+        final double opacity = isHidden ? 0.3 : (isDeprioritized ? 0.5 : 1.0);
+        final double iconSize = isDeprioritized ? 30.0 : (isCluster ? 44.0 : 38.0);
+        final double markerW = isDeprioritized ? 40.0 : (isCluster ? 70.0 : (isFullyUnlocked ? 60.0 : 52.0));
+
+        // Badge label
+        String badgeLabel;
+        if (isCluster) {
+          badgeLabel = '×${cluster.members.length}';
+        } else if (isHidden) {
+          badgeLabel = 'Hidden';
+        } else if (!isFullyUnlocked) {
+          final shortTitle = pin.title.length > 10 ? '${pin.title.substring(0, 10)}…' : pin.title;
+          badgeLabel = shortTitle;
+        } else {
+          badgeLabel = '${dist.toInt()}m';
         }
 
-        // Opacity Rule
-        final double opacity = isHidden ? 0.3 : (isDeprioritized ? 0.5 : 1.0);
-        
-        // Size Rule
-        final double size = isDeprioritized ? 40.0 : 60.0;
+        // ── Phase 1b: jitter locked non-own pins to hide exact spot ──
+        final displayPoint = (!isFullyUnlocked && !isOwnPin && !isCluster)
+            ? _jitteredPosition(pin)
+            : LatLng(pin.lat, pin.lon);
+
+        // ── Phase 1b: hex-cloud BorderRadius for locked pins ──
+        final BorderRadius markerRadius = isCluster
+            ? BorderRadius.circular(12)
+            : (!isFullyUnlocked && !isOwnPin)
+                ? const BorderRadius.only(
+                    topLeft: Radius.circular(18),
+                    topRight: Radius.circular(6),
+                    bottomLeft: Radius.circular(6),
+                    bottomRight: Radius.circular(18),
+                  )
+                : BorderRadius.circular(50);
 
         return Marker(
-          point: LatLng(pin.lat, pin.lon),
-          width: size,
-          height: size + 20, // Add space for badge
+          point: displayPoint,
+          width: markerW,
+          height: markerW + 20,
           child: Opacity(
             opacity: opacity,
             child: GestureDetector(
               onTap: () {
-                // If hidden, tapping opens sheet where you can unhide (future) or just view details
-                _showPinSheet(pin, dist);
+                if (isCluster) {
+                  _showClusterSheet(cluster);
+                } else {
+                  _showPinSheet(pin, dist, isFullyUnlocked: isFullyUnlocked);
+                }
               },
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Distance badge (Hide if deprioritized/hidden to reduce clutter?)
-                  // Showing it for now but simplified
                   if (!isDeprioritized)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: isInRange ? color : Colors.grey[400],
+                        color: (isFullyUnlocked || isCluster) ? color : Colors.grey[600],
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        isHidden ? 'Hidden' : '${dist.toInt()}m',
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                        badgeLabel,
+                        style: const TextStyle(
+                          color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
                     ),
-                  
                   const SizedBox(height: 2),
-                  
-                  // Pin icon
                   Container(
-                    width: isDeprioritized ? 30 : 38,
-                    height: isDeprioritized ? 30 : 38,
+                    width: isDeprioritized ? 24 : (isCluster ? 44 : 38),
+                    height: isDeprioritized ? 24 : (isCluster ? 44 : 38),
                     decoration: BoxDecoration(
                       color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: isDeprioritized ? 1.5 : 3),
-                      boxShadow: isInRange && !isHidden && !isDeprioritized
-                          ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)]
+                      borderRadius: markerRadius,
+                      border: Border.all(
+                        color: (isFullyUnlocked || isOwnPin || isCluster)
+                            ? Colors.white
+                            : Colors.white54,
+                        width: isDeprioritized ? 1.5 : 3,
+                      ),
+                      boxShadow: (isFullyUnlocked || isCluster) && !isHidden && !isDeprioritized
+                          ? [BoxShadow(
+                              color: color.withOpacity(0.5),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            )]
                           : null,
                     ),
                     child: Icon(
-                      isHidden 
-                          ? Icons.visibility_off 
-                          : (pin.pinCategory == 'community' 
-                              ? Icons.groups 
-                              : (pin.type == 'sensation' ? Icons.auto_awesome : Icons.place)),
+                      isCluster
+                          ? Icons.layers
+                          : isHidden
+                              ? Icons.visibility_off
+                              : (!isFullyUnlocked
+                                  ? Icons.cloud // 🌫️ hex cloud for locked
+                                  : (pin.pinCategory == 'community'
+                                      ? Icons.groups
+                                      : (pin.type == 'sensation'
+                                          ? Icons.auto_awesome
+                                          : Icons.place))),
                       color: Colors.white,
-                      size: isDeprioritized ? 16 : 20,
+                      size: isDeprioritized ? 14 : (isCluster ? 24 : 20),
                     ),
                   ),
                 ],
@@ -698,6 +887,86 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           ),
         );
       }).toList(),
+    );
+  }
+
+  // Show a sheet listing all pins in a cluster
+  void _showClusterSheet(_PinCluster cluster) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 14),
+            Row(children: [
+              const Icon(Icons.layers, color: Color(0xFF6C63FF), size: 24),
+              const SizedBox(width: 10),
+              Text('${cluster.members.length} Pins at this spot',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ]),
+            const SizedBox(height: 12),
+            ...cluster.members.map((pin) {
+              final d = _userPosition == null
+                  ? 0.0
+                  : Geolocator.distanceBetween(
+                      _userPosition!.latitude, _userPosition!.longitude,
+                      pin.lat, pin.lon);
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFF6C63FF).withOpacity(0.1),
+                  child: Icon(
+                    pin.pinCategory == 'community' ? Icons.groups : Icons.place,
+                    color: const Color(0xFF6C63FF), size: 18),
+                ),
+                title: Text(pin.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text('${d.toInt()}m away'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showPinSheet(pin, d, isFullyUnlocked: d <= 20.0);
+                },
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // Phase 1c: Fog of War layer
+  // ──────────────────────────────────────────────
+  Widget _buildFogLayer() {
+    return Builder(
+      builder: (ctx) {
+        MapCamera? camera;
+        try {
+          camera = MapCamera.of(ctx);
+        } catch (_) {
+          return const SizedBox();
+        }
+        return IgnorePointer(
+          child: CustomPaint(
+            painter: _FogOfWarPainter(
+              camera: camera,
+              clearedPoints: List.unmodifiable(_fogClearedPoints),
+              userPosition: _userPosition,
+            ),
+            child: const SizedBox.expand(),
+          ),
+        );
+      },
     );
   }
 
@@ -744,6 +1013,25 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          // Fog toggle
+          GestureDetector(
+            onTap: () => setState(() => _fogEnabled = !_fogEnabled),
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: _fogEnabled
+                    ? Colors.indigo.withOpacity(0.12)
+                    : Colors.grey.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                _fogEnabled ? Icons.cloud : Icons.wb_sunny,
+                size: 16,
+                color: _fogEnabled ? Colors.indigo[700] : Colors.grey[500],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           // Connection indicator
           Container(
             width: 10, height: 10,
@@ -846,7 +1134,10 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // ──────────────────────────────────────────────
   // PIN DETAIL SHEET
   // ──────────────────────────────────────────────
-  void _showPinSheet(Pin pin, double dist) {
+  void _showPinSheet(Pin pin, double dist, {bool isFullyUnlocked = false}) {
+    // Mark as opened — remove from ghost candidate
+    _nearbyButNotOpened.remove(pin.id);
+
     final dir = _userPosition != null
         ? _compassDir(_userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon)
         : '';
@@ -866,6 +1157,32 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           children: [
             Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
             const SizedBox(height: 16),
+
+            // ── Phase 1a: Locked banner (50–20m) ──
+            if (!isFullyUnlocked)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber[300]!),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_clock, color: Colors.amber, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Get within 20m to unlock full details!  (${dist.toInt()}m away)',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Title
             Row(children: [
               Icon(
@@ -889,13 +1206,24 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               ),
             ),
             const SizedBox(height: 10),
-            Text(pin.directions, style: const TextStyle(fontSize: 15, height: 1.4)),
-            if (pin.details != null) ...[
+
+            // Directions hint — always shown (50–20m shows as teaser)
+            Text(
+              isFullyUnlocked
+                  ? pin.directions
+                  : (pin.directions.length > 40
+                      ? '${pin.directions.substring(0, 40)}… (get closer to read more)'
+                      : pin.directions),
+              style: const TextStyle(fontSize: 15, height: 1.4),
+            ),
+
+            // Full details only when unlocked
+            if (isFullyUnlocked && pin.details != null) ...[
               const SizedBox(height: 6),
               Text(pin.details!, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
             ],
             const SizedBox(height: 16),
-             // Like/Dislike
+             // Actions — only show interactive buttons when fully unlocked
              // Minimalist Actions: Like | Hide | Report
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -977,7 +1305,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             
             const SizedBox(height: 12),
             
-            // "Let's Explore" Navigation Button
+            // "Let's Explore" Navigation Button — only when unlocked
+            if (isFullyUnlocked)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -1000,8 +1329,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               ),
             ),
             
-            // Community Join Button (Only for Community Pins)
-            if (pin.pinCategory == 'community') ...[
+            // Community Join Button (Only for Community Pins when unlocked)
+            if (isFullyUnlocked && pin.pinCategory == 'community') ...[
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -1179,4 +1508,65 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       child: IconButton(icon: Icon(icon, color: Colors.black87), onPressed: onTap),
     );
   }
+}
+
+// ─────────────────────────────────────────────────
+// Phase 1b helper: pin cluster model
+// ─────────────────────────────────────────────────
+class _PinCluster {
+  final Pin representative;
+  final List<Pin> members;
+  _PinCluster({required this.representative, required this.members});
+  bool get isCluster => members.length > 1;
+}
+
+// ─────────────────────────────────────────────────
+// Phase 1c: Fog of War custom painter
+// ─────────────────────────────────────────────────
+class _FogOfWarPainter extends CustomPainter {
+  final MapCamera camera;
+  final List<LatLng> clearedPoints;
+  final LatLng? userPosition;
+
+  const _FogOfWarPainter({
+    required this.camera,
+    required this.clearedPoints,
+    required this.userPosition,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Save layer so BlendMode.clear punches real holes in the fog
+    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
+
+    // Draw the dark fog over the entire canvas
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = Colors.black.withOpacity(0.68),
+    );
+
+    // Punch circular holes for every explored point
+    final clearPaint = Paint()..blendMode = BlendMode.clear;
+    const exploredRadius = 85.0; // pixels
+
+    for (final pt in clearedPoints) {
+      final sp = camera.latLngToScreenPoint(pt);
+      canvas.drawCircle(Offset(sp.x.toDouble(), sp.y.toDouble()), exploredRadius, clearPaint);
+    }
+
+    // Always clear a larger circle around the current user position
+    if (userPosition != null) {
+      final sp = camera.latLngToScreenPoint(userPosition!);
+      canvas.drawCircle(
+          Offset(sp.x.toDouble(), sp.y.toDouble()), exploredRadius * 1.5, clearPaint);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_FogOfWarPainter old) =>
+      old.clearedPoints.length != clearedPoints.length ||
+      old.userPosition != userPosition ||
+      old.camera != camera;
 }

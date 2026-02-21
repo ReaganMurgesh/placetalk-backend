@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:confetti/confetti.dart';
 import 'package:placetalk/services/location_service.dart';
@@ -30,6 +32,10 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   bool _respectsPrivacy = false;
   bool _followsGuidelines = false;
   bool _noPrivateProperty = false;
+
+  // --- Phase 1a: GPS fine-tuning ---
+  // User-adjusted pin position from the fine-tune map (overrides raw GPS on create)
+  LatLng? _fineTunedLatLng;
   
   // Confetti controller
   late ConfettiController _confettiController;
@@ -102,59 +108,17 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       // Check if still mounted before using context
       if (!mounted) return;
       
-      // SHOW GPS COORDINATES TO USER WITH ACCURACY INFO
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('📍 Confirm Pin Location'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.gps_fixed, color: Colors.green, size: 20),
-                  const SizedBox(width: 8),
-                  Text('GPS Accuracy: ${position.accuracy.toStringAsFixed(1)}m'),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('📍 Latitude: ${position.latitude.toStringAsFixed(6)}'),
-                    Text('📍 Longitude: ${position.longitude.toStringAsFixed(6)}'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text('Pin will be created at this exact GPS location.', 
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Create Pin'),
-            ),
-          ],
-        ),
-      );
-      
+      // --- Phase 1a: GPS Fine-Tune Map Dialog ---
+      // Let user tap to shift pin up to 5m from true GPS location
+      final confirmed = await _showGpsFineTuneDialog(position);
       if (confirmed != true) {
         setState(() => _isLoading = false);
         return;
       }
+
+      // Use fine-tuned position if set, otherwise raw GPS
+      final double finalLat = _fineTunedLatLng?.latitude ?? position.latitude;
+      final double finalLon = _fineTunedLatLng?.longitude ?? position.longitude;
       
       setState(() => _isLoading = true);
       
@@ -174,8 +138,8 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
         title: _titleController.text.trim(),
         directions: _directionsController.text.trim(),
         details: finalDetails,
-        lat: position.latitude,  // Use fresh coordinates
-        lon: position.longitude, // Use fresh coordinates
+        lat: finalLat,   // Fine-tuned or GPS coordinates
+        lon: finalLon,   // Fine-tuned or GPS coordinates
         type: _pinType,
         pinCategory: _pinCategory,
       );
@@ -272,6 +236,138 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  // ─────────────────────────────────────────────
+  // GPS Fine-Tune Dialog (Phase 1a)
+  // ─────────────────────────────────────────────
+  Future<bool?> _showGpsFineTuneDialog(Position gpsPosition) async {
+    final gpsLatLng = LatLng(gpsPosition.latitude, gpsPosition.longitude);
+    LatLng pinLatLng = gpsLatLng;
+    // Max 5m offset in degrees (1m ≈ 0.000009 deg at equator)
+    const maxDeltaDeg = 0.000045; // ~5m
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.tune, color: Color(0xFF6C63FF)),
+              SizedBox(width: 8),
+              Expanded(child: Text('Fine-tune Pin Location', overflow: TextOverflow.ellipsis)),
+            ],
+          ),
+          contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 300,
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: FlutterMap(
+                    options: MapOptions(
+                      initialCenter: gpsLatLng,
+                      initialZoom: 20.0,
+                      maxZoom: 21.0,
+                      minZoom: 19.0,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.pinchZoom | InteractiveFlag.pinchMove,
+                      ),
+                      onTap: (_, latlng) {
+                        // Clamp to ±5m around true GPS
+                        final dLat = (latlng.latitude - gpsLatLng.latitude)
+                            .clamp(-maxDeltaDeg, maxDeltaDeg);
+                        final dLon = (latlng.longitude - gpsLatLng.longitude)
+                            .clamp(-maxDeltaDeg, maxDeltaDeg);
+                        final clamped = LatLng(
+                          gpsLatLng.latitude + dLat,
+                          gpsLatLng.longitude + dLon,
+                        );
+                        setS(() => pinLatLng = clamped);
+                        // Propagate up so _createPin reads it
+                        setState(() => _fineTunedLatLng = clamped);
+                      },
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+                        userAgentPackageName: 'com.placetalk.app',
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          // True GPS reference (blue dot)
+                          Marker(
+                            point: gpsLatLng,
+                            width: 16,
+                            height: 16,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.5),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.blue, width: 2),
+                              ),
+                            ),
+                          ),
+                          // Adjusted pin (red)
+                          Marker(
+                            point: pinLatLng,
+                            width: 36,
+                            height: 44,
+                            alignment: Alignment.topCenter,
+                            child: const Icon(Icons.location_on,
+                                color: Colors.red, size: 36),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Hint overlay
+                Positioned(
+                  bottom: 6,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Tap map to adjust (max 5m from GPS 🔵)',
+                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() => _fineTunedLatLng = null);
+                Navigator.pop(ctx, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.check, size: 18, color: Colors.white),
+              label: const Text('Confirm', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6C63FF),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -408,14 +504,14 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               TextFormField(
                 controller: _titleController,
                 decoration: InputDecoration(
-                  labelText: 'Title *',
-                  hintText: 'e.g. Hidden cafe, Beautiful sunset spot',
+                  labelText: 'Title * (10 chars max)',
+                  hintText: 'e.g. Cafe, Sunset',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.title),
                 ),
-                maxLength: 100,
+                maxLength: 15,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter a title';
                   return null;
@@ -428,15 +524,15 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               TextFormField(
                 controller: _directionsController,
                 decoration: InputDecoration(
-                  labelText: 'Directions *',
-                  hintText: 'Behind the blue building, second door',
+                  labelText: 'Hint / Directions * (80 chars)',
+                  hintText: 'Behind the blue building',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.directions),
                 ),
                 maxLines: 2,
-                maxLength: 200,
+                maxLength: 80,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter directions';
                   return null;
@@ -449,7 +545,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             TextFormField(
               controller: _detailsController,
               decoration: InputDecoration(
-                labelText: 'Details (Optional)',
+                labelText: 'Details (Optional, max 400)',
                 hintText: 'Great coffee, quiet atmosphere...',
                 filled: true,
                 fillColor: Colors.white,
@@ -457,7 +553,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                 prefixIcon: const Icon(Icons.description),
               ),
               maxLines: 3,
-              maxLength: 500,
+              maxLength: 400,
             ),
 
             const SizedBox(height: 16),
