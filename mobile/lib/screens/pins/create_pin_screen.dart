@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:confetti/confetti.dart';
 import 'package:placetalk/services/location_service.dart';
+import 'package:placetalk/services/geocoding_service.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 
@@ -36,6 +37,9 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   // --- Phase 1a: GPS fine-tuning ---
   // User-adjusted pin position from the fine-tune map (overrides raw GPS on create)
   LatLng? _fineTunedLatLng;
+
+  // Address label from LocationIQ reverse geocoding
+  String? _addressLabel;
   
   // Confetti controller
   late ConfettiController _confettiController;
@@ -75,6 +79,11 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       
       setState(() {
         _currentPosition = position;
+      });
+
+      // Reverse geocode in background — show address once resolved
+      GeocodingService.reverseGeocode(position.latitude, position.longitude).then((addr) {
+        if (addr != null && mounted) setState(() => _addressLabel = addr.display);
       });
     } catch (e) {
       print('❌ CreatePinScreen: Location error - $e');
@@ -421,6 +430,22 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                                   '${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}',
                                   style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                                 ),
+                                if (_addressLabel != null) ...[  
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.location_city, size: 12, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          _addressLabel!,
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF4CAF50), fontWeight: FontWeight.w600),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             )
                           : const Row(

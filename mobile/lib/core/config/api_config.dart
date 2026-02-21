@@ -27,4 +27,8 @@ class ApiConfig {
   // Discovery settings
   static const double discoveryRadiusMeters = 50.0;
   static const double movementThresholdMeters = 20.0;
+
+  // LocationIQ reverse geocoding — get your free key at https://locationiq.com/register
+  // Free tier: 5,000 requests/day
+  static const String locationIqKey = ''; // TODO: paste your LocationIQ API key here
 }

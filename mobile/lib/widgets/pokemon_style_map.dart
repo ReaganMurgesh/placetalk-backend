@@ -13,6 +13,7 @@ import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/models/pin.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/models/community.dart';
+import 'package:placetalk/services/geocoding_service.dart';
 import 'package:placetalk/screens/social/community_screen.dart';
 import 'package:placetalk/services/navigation_service.dart';
 import 'package:placetalk/providers/diary_provider.dart';
@@ -1205,7 +1206,33 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF6C63FF)),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
+            // Address from LocationIQ reverse geocoding
+            FutureBuilder<GeocodedAddress?>(
+              future: GeocodingService.reverseGeocode(pin.lat, pin.lon),
+              builder: (_, snap) {
+                if (snap.hasData && snap.data != null) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_city_outlined, size: 13, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            snap.data!.display,
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            const SizedBox(height: 6),
 
             // Directions hint — always shown (50–20m shows as teaser)
             Text(
