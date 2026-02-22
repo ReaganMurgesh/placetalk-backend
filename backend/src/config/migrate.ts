@@ -220,7 +220,8 @@ export async function runMigrations() {
         await pool.query(`
             DO $$ BEGIN
                 ALTER TABLE pins ADD CONSTRAINT pins_title_length
-                    CHECK (char_length(title) <= 10);
+                    CHECK (char_length(title) <= 10)
+                    NOT VALID;
             EXCEPTION WHEN duplicate_object THEN NULL;
             END $$
         `);
