@@ -684,38 +684,58 @@ class _GhostVerifiedCard extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    if (isGhost) ...[
-                      const SizedBox(height: 10),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          try {
-                            await ref.read(apiClientProvider).verifyGhostPin(entry.pinId);
-                            ref.invalidate(diaryPassiveLogProvider);
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('✅ Verified! Pin liked.'),
-                                  backgroundColor: Color(0xFF68BE8D),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                              );
-                            }
-                          }
-                        },
-                        icon: const Icon(Icons.favorite_border, size: 16),
-                        label: const Text('Verify (Like)'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _DiaryColors.akeIro,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        if (isGhost) ...[
+                          FilledButton.icon(
+                            onPressed: () async {
+                              try {
+                                await ref.read(apiClientProvider).verifyGhostPin(entry.pinId);
+                                ref.invalidate(diaryPassiveLogProvider);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('✅ Verified! Pin liked.'),
+                                      backgroundColor: Color(0xFF68BE8D),
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.favorite_border, size: 16),
+                            label: const Text('Verify'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _DiaryColors.akeIro,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            ref.read(mapFocusProvider.notifier).state =
+                                LatLng(entry.pinLat, entry.pinLon);
+                            Navigator.of(context).popUntil((r) => r.isFirst);
+                          },
+                          icon: const Icon(Icons.map_rounded, size: 16),
+                          label: const Text('View on Map'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _DiaryColors.wakatake,
+                            side: const BorderSide(color: _DiaryColors.wakatake),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -995,39 +1015,58 @@ class _JapanesePinCard extends ConsumerWidget {
               runSpacing: 6,
               children: [
                 _JapaneseStatChip(emoji: '👍', label: pin.likeCount.toString(), color: _DiaryColors.wakatake),
-                _JapaneseStatChip(emoji: '👎', label: pin.dislikeCount.toString(), color: _DiaryColors.akeIro),
                 _JapaneseStatChip(emoji: '👣', label: pin.passThrough.toString(), color: _DiaryColors.aiIro),
                 _JapaneseStatChip(emoji: '🙈', label: pin.hideCount.toString(), color: _DiaryColors.kitsune),
                 _JapaneseStatChip(emoji: '🚩', label: pin.reportCount.toString(), color: Colors.red.shade400),
               ],
             ),
             const SizedBox(height: 12),
-            // Navigate button
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  final success = await NavigationService.navigateToPin(
-                    pinLat: pin.lat,
-                    pinLon: pin.lon,
-                    pinTitle: pin.title,
-                  );
-                  if (!success && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Unable to open maps')),
+            // Action buttons: View on In-App Map  +  External Directions
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // External directions (secondary)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final success = await NavigationService.navigateToPin(
+                      pinLat: pin.lat,
+                      pinLon: pin.lon,
+                      pinTitle: pin.title,
                     );
-                  }
-                },
-                icon: const Icon(Icons.directions, size: 18),
-                label: const Text('案内'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _DiaryColors.akeIro,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                  elevation: 3,
+                    if (!success && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('No maps app found')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.directions, size: 16),
+                  label: const Text('案内', style: TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _DiaryColors.aiIro,
+                    side: const BorderSide(color: _DiaryColors.aiIro),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                // In-app map (primary)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    ref.read(mapFocusProvider.notifier).state =
+                        LatLng(pin.lat, pin.lon);
+                    Navigator.of(context).popUntil((r) => r.isFirst);
+                  },
+                  icon: const Icon(Icons.map_rounded, size: 16),
+                  label: const Text('Map', style: TextStyle(fontSize: 13)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _DiaryColors.akeIro,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                    elevation: 2,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
