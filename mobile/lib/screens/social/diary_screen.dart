@@ -1,9 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:placetalk/models/diary.dart' hide Badge;
-import 'package:placetalk/models/diary.dart' as diary show Badge;
-import 'package:placetalk/theme/japanese_theme.dart' hide JapaneseColors;
 import 'package:placetalk/providers/diary_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
@@ -24,10 +21,6 @@ class _DiaryColors {
   static const sumiIro = Color(0xFF27292B);          // 墨色 Ink black
   static const kitsune = Color(0xFFFF8C42);          // 狐色 Fox orange
   static const wakatake = Color(0xFF68BE8D);         // 若竹 Young bamboo
-  // Aliases for compatibility
-  static const sakura = Color(0xFFFEF4F4);           // Cherry Blossom White
-  static const sumi = Color(0xFF1C1C1C);             // Ink Black (alias)
-  static const kogane = Color(0xFFE6B422);           // Gold (Kogane-iro)
 }
 
 class DiaryScreen extends ConsumerWidget {
