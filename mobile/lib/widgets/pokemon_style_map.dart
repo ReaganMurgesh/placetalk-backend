@@ -1759,94 +1759,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               Text(pin.details!, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
             ],
             const SizedBox(height: 16),
-             // Actions — only show interactive buttons when fully unlocked
-             // Minimalist Actions: Like | Hide | Report
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // LIKE
-                _actionBtn(
-                  icon: Icons.thumb_up,
-                  label: 'Like (${pin.likeCount})',
-                  color: Colors.green,
-                  onTap: () async {
-                    try {
-                      // Go through discovery provider so all map state stays consistent
-                      await ref.read(discoveryProvider.notifier).likePin(pin.id);
-                      // Also refresh diary stats/logs/metrics so counts stay in sync everywhere
-                      ref.invalidate(diaryStatsProvider);
-                      ref.invalidate(diaryPassiveLogProvider);
-                      ref.invalidate(myPinsMetricsProvider);
-                      if (ctx.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('👍 Liked!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
-                        );
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Like failed: ${_apiError(e)}'), backgroundColor: Colors.red),
-                        );
-                      }
-                    }
-                  },
-                ),
-                // HIDE (Personal)
-                _actionBtn(
-                  icon: Icons.visibility_off,
-                  label: 'Hide',
-                  color: Colors.grey,
-                  onTap: () async {
-                    try {
-                      // Use discovery provider wrapper (backend + local state)
-                      await ref.read(discoveryProvider.notifier).hidePin(pin.id);
-                      // Refresh diary metrics so hideCount updates in My Pins tab
-                      ref.invalidate(diaryPassiveLogProvider);
-                      ref.invalidate(myPinsMetricsProvider);
-                      if (ctx.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Pin hidden'), duration: Duration(seconds: 2)),
-                        );
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Hide failed: ${_apiError(e)}'), backgroundColor: Colors.red),
-                        );
-                      }
-                    }
-                  },
-                ),
-                // REPORT (Global)
-                _actionBtn(
-                  icon: Icons.flag,
-                  label: 'Report',
-                  color: Colors.redAccent,
-                  onTap: () async {
-                    try {
-                      await ref.read(discoveryProvider.notifier).reportPin(pin.id);
-                      // Diary logs + pin.report_count are updated on backend; refresh metrics here
-                      ref.invalidate(diaryPassiveLogProvider);
-                      ref.invalidate(myPinsMetricsProvider);
-                      if (ctx.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Reported — pin creator notified'), backgroundColor: Colors.redAccent, duration: Duration(seconds: 3)),
-                        );
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Report failed: ${_apiError(e)}'), backgroundColor: Colors.red),
-                        );
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
+            // Actions — animated Like / Hide / Report
+            _PinActionRow(pin: pin, sheetCtx: ctx, mapContext: context),
             
             const SizedBox(height: 12),
             
@@ -2121,32 +2035,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     }
   }
 
-  Widget _actionBtn({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-              border: Border.all(color: color, width: 2),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
-        ],
-      ),
-    );
-  }
 
   // ──────────────────────────────────────────────
   // PIN LIST
@@ -2254,6 +2142,288 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8)],
       ),
       child: IconButton(icon: Icon(icon, color: Colors.black87), onPressed: onTap),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// _PinActionRow — manages Like / Hide / Report state
+// ─────────────────────────────────────────────────
+class _PinActionRow extends ConsumerStatefulWidget {
+  final Pin pin;
+  final BuildContext sheetCtx;
+  final BuildContext mapContext;
+  const _PinActionRow({required this.pin, required this.sheetCtx, required this.mapContext});
+
+  @override
+  ConsumerState<_PinActionRow> createState() => _PinActionRowState();
+}
+
+class _PinActionRowState extends ConsumerState<_PinActionRow> {
+  late int _likeCount;
+  bool _isLiked = false;
+  bool _isHidden = false;
+  bool _isReported = false;
+  bool _likeLoading = false;
+  bool _hideLoading = false;
+  bool _reportLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _likeCount = widget.pin.likeCount;
+  }
+
+  String _err(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map && data['error'] != null) return data['error'].toString();
+      if (data is String && data.isNotEmpty) return data;
+    }
+    return e.toString();
+  }
+
+  Future<void> _handleLike() async {
+    if (_likeLoading) return;
+    final wasLiked = _isLiked;
+    final prevCount = _likeCount;
+    setState(() {
+      _likeLoading = true;
+      _isLiked = !wasLiked;
+      _likeCount = wasLiked ? prevCount - 1 : prevCount + 1;
+    });
+    try {
+      await ref.read(discoveryProvider.notifier).likePin(widget.pin.id);
+      ref.invalidate(diaryStatsProvider);
+      ref.invalidate(diaryPassiveLogProvider);
+      ref.invalidate(myPinsMetricsProvider);
+    } catch (e) {
+      if (mounted) {
+        setState(() { _isLiked = wasLiked; _likeCount = prevCount; });
+        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+          SnackBar(content: Text('Like failed: ${_err(e)}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _likeLoading = false);
+    }
+  }
+
+  Future<void> _handleHide() async {
+    if (_hideLoading) return;
+    final wasHidden = _isHidden;
+    setState(() { _hideLoading = true; _isHidden = !wasHidden; });
+    try {
+      await ref.read(discoveryProvider.notifier).hidePin(widget.pin.id);
+      ref.invalidate(diaryPassiveLogProvider);
+      ref.invalidate(myPinsMetricsProvider);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isHidden = wasHidden);
+        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+          SnackBar(content: Text('Hide failed: ${_err(e)}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _hideLoading = false);
+    }
+  }
+
+  Future<void> _handleReport() async {
+    if (_reportLoading) return;
+    final wasReported = _isReported;
+    setState(() { _reportLoading = true; _isReported = !wasReported; });
+    try {
+      await ref.read(discoveryProvider.notifier).reportPin(widget.pin.id);
+      ref.invalidate(diaryPassiveLogProvider);
+      ref.invalidate(myPinsMetricsProvider);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isReported = wasReported);
+        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+          SnackBar(content: Text('Report failed: ${_err(e)}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _reportLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _InteractiveActionBtn(
+          icon: Icons.thumb_up_rounded,
+          label: 'Like',
+          count: _likeCount,
+          color: Colors.green,
+          active: _isLiked,
+          loading: _likeLoading,
+          showFloatingPlus: true,
+          onTap: _handleLike,
+        ),
+        _InteractiveActionBtn(
+          icon: Icons.visibility_off_rounded,
+          label: 'Hide',
+          color: Colors.blueGrey,
+          active: _isHidden,
+          loading: _hideLoading,
+          onTap: _handleHide,
+        ),
+        _InteractiveActionBtn(
+          icon: Icons.flag_rounded,
+          label: 'Report',
+          color: Colors.redAccent,
+          active: _isReported,
+          loading: _reportLoading,
+          onTap: _handleReport,
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// _InteractiveActionBtn — bounce + glow + floating +1
+// ─────────────────────────────────────────────────
+class _InteractiveActionBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final int? count;
+  final Color color;
+  final bool active;
+  final bool loading;
+  final bool showFloatingPlus;
+  final VoidCallback onTap;
+
+  const _InteractiveActionBtn({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.active,
+    required this.loading,
+    required this.onTap,
+    this.count,
+    this.showFloatingPlus = false,
+  });
+
+  @override
+  State<_InteractiveActionBtn> createState() => _InteractiveActionBtnState();
+}
+
+class _InteractiveActionBtnState extends State<_InteractiveActionBtn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  bool _showPlus = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 350));
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.4), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.4, end: 0.85), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 0.85, end: 1.0), weight: 30),
+    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didUpdateWidget(_InteractiveActionBtn old) {
+    super.didUpdateWidget(old);
+    if (!old.active && widget.active) {
+      _ctrl.forward(from: 0);
+      if (widget.showFloatingPlus) {
+        setState(() => _showPlus = true);
+        Future.delayed(const Duration(milliseconds: 750), () {
+          if (mounted) setState(() => _showPlus = false);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color;
+    final label = widget.count != null ? '${widget.label} (${widget.count})' : widget.label;
+    return GestureDetector(
+      onTap: widget.loading ? null : widget.onTap,
+      child: SizedBox(
+        width: 88,
+        child: Stack(
+          alignment: Alignment.topCenter,
+          clipBehavior: Clip.none,
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _scale,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: widget.active ? c : c.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: c, width: 2),
+                      boxShadow: widget.active
+                          ? [BoxShadow(color: c.withOpacity(0.45), blurRadius: 14, spreadRadius: 2)]
+                          : [],
+                    ),
+                    child: widget.loading
+                        ? SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: widget.active ? Colors.white : c,
+                            ),
+                          )
+                        : Icon(widget.icon,
+                            color: widget.active ? Colors.white : c, size: 24),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 200),
+                  style: TextStyle(
+                    color: widget.active ? c : Colors.grey[600]!,
+                    fontWeight: widget.active ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 12,
+                  ),
+                  child: Text(label, textAlign: TextAlign.center),
+                ),
+              ],
+            ),
+            // Floating +1
+            if (_showPlus)
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 750),
+                builder: (_, t, __) {
+                  final opacity = (t < 0.65 ? 1.0 : (1.0 - (t - 0.65) / 0.35)).clamp(0.0, 1.0);
+                  return Positioned(
+                    top: -32 * t,
+                    child: Opacity(
+                      opacity: opacity,
+                      child: Text('+1',
+                          style: TextStyle(
+                              color: c, fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
