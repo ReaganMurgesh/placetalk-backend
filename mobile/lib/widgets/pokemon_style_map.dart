@@ -77,7 +77,8 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   List<LatLng> _navigationPath = [];
   Pin? _navTargetPin;
   bool _isNavigating = false;
-  bool _arrivalHandled = false; Two-stage detection & Ghost Pins ---
+  bool _arrivalHandled = false; // Guard: prevent double-logging on arrival
+  // --- Phase 1a: Two-stage detection & Ghost Pins ---
   final Set<String> _autoPoppedPins = {};
   final Set<String> _nearbyButNotOpened = {};
   final Set<String> _ghostRecorded = {};
@@ -90,6 +91,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   final List<LatLng> _fogClearedPoints = [];
   LatLng? _lastFogUpdate;
   bool _fogEnabled = true;
+  Timer? _periodicHeartbeat;
   Timer? _fogSaveTimer; // debounce for SharedPreferences writes
 
   // --- 150m Hex Cloud: place name cache per hex cell key ---
