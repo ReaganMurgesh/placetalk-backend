@@ -60,6 +60,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   
   double _heading = 0.0;
   LatLng? _userPosition;
+  bool _followUser = true; // when false, map stays where user/manual focus put it
   Position? _lastHeartbeatPos;
   String _statusText = 'Initializing GPS...';
   bool _connectionOk = true;
@@ -176,8 +177,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.listen(mapFocusProvider, (_, next) {
         if (next != null && mounted) {
+          // When coming from Diary search / Ghost card / Community, focus map on that pin
+          // and temporarily disable GPS auto-follow until user taps My Location.
+          setState(() {
+            _followUser = false;
+          });
           _mapController.move(next, 17.0);
-          ref.read(mapFocusProvider.notifier).state = null; // clear after use
+          ref.read(mapFocusProvider.notifier).state = null; // one-shot trigger
         }
       });
     });
@@ -363,9 +369,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     ref.read(discoveryProvider.notifier).updatePosition(pos);
     
     // LOCK map camera to GPS position (Pokémon GO behavior)
-    try {
-      _mapController.move(newPos, _mapController.camera.zoom);
-    } catch (_) {}
+    // Only when follow mode is enabled; when user jumped to a diary/search pin,
+    // keep the map where they put it until they tap My Location.
+    if (_followUser) {
+      try {
+        _mapController.move(newPos, _mapController.camera.zoom);
+      } catch (_) {}
+    }
 
     // Phase 1c: record cleared fog area every 8m of movement
     if (_fogEnabled) {
@@ -559,9 +569,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               maxZoom: 19.0,
               initialRotation: -_heading,
               onPositionChanged: (pos, hasGesture) {
-                if (hasGesture && _userPosition != null) {
+                // After a manual gesture, if follow mode is ON, gently snap back to the user
+                // position after a short delay. When follow mode is OFF (Diary/search focus),
+                // leave the camera where the user put it.
+                if (hasGesture && _userPosition != null && _followUser) {
                   Future.delayed(const Duration(seconds: 2), () {
-                    if (mounted && _userPosition != null) {
+                    if (mounted && _userPosition != null && _followUser) {
                       _mapController.move(_userPosition!, _mapController.camera.zoom);
                     }
                   });
@@ -712,6 +725,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               children: [
                 _mapFab(Icons.my_location, const Color(0xFF6C63FF), () async {
                   if (_userPosition != null) {
+                    setState(() {
+                      _followUser = true; // re-enable GPS follow when user taps My Location
+                    });
                     _mapController.move(_userPosition!, _mapController.camera.zoom);
                   }
                   await ref.read(discoveryProvider.notifier).manualDiscovery();

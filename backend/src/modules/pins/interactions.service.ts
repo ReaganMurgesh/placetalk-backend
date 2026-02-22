@@ -23,21 +23,21 @@ export class InteractionsService {
                 throw new Error('Pin not found');
             }
 
-            // Check existing interaction
+            // Check existing interaction (uses interactions.interaction_type column)
             const existing = await client.query(
-                'SELECT action FROM interactions WHERE user_id = $1 AND pin_id = $2',
+                'SELECT interaction_type FROM interactions WHERE user_id = $1 AND pin_id = $2',
                 [userId, pinId]
             );
 
             if (existing.rows.length > 0) {
-                if (existing.rows[0].action === 'like') {
+                if (existing.rows[0].interaction_type === 'like') {
                     throw new Error('Already liked this pin');
                 }
 
                 // Flip from dislike → like
                 await client.query(
-                    'UPDATE interactions SET action = $1, created_at = NOW() WHERE user_id = $2 AND pin_id = $3 AND action = $4',
-                    ['like', userId, pinId, existing.rows[0].action]
+                    'UPDATE interactions SET interaction_type = $1, created_at = NOW() WHERE user_id = $2 AND pin_id = $3 AND interaction_type = $4',
+                    ['like', userId, pinId, existing.rows[0].interaction_type]
                 );
 
                 // Adjust counts: +1 like, -1 dislike
@@ -48,7 +48,7 @@ export class InteractionsService {
             } else {
                 // New interaction
                 await client.query(
-                    'INSERT INTO interactions (user_id, pin_id, action) VALUES ($1, $2, $3)',
+                    'INSERT INTO interactions (user_id, pin_id, interaction_type) VALUES ($1, $2, $3)',
                     [userId, pinId, 'like']
                 );
 
@@ -101,21 +101,21 @@ export class InteractionsService {
                 throw new Error('Pin not found');
             }
 
-            // Check existing interaction
+            // Check existing interaction (uses interactions.interaction_type column)
             const existing = await client.query(
-                'SELECT action FROM interactions WHERE user_id = $1 AND pin_id = $2',
+                'SELECT interaction_type FROM interactions WHERE user_id = $1 AND pin_id = $2',
                 [userId, pinId]
             );
 
             if (existing.rows.length > 0) {
-                if (existing.rows[0].action === 'dislike') {
+                if (existing.rows[0].interaction_type === 'dislike') {
                     throw new Error('Already reported this pin');
                 }
 
                 // Flip from like → dislike (report)
                 await client.query(
-                    'UPDATE interactions SET action = $1, created_at = NOW() WHERE user_id = $2 AND pin_id = $3 AND action = $4',
-                    ['dislike', userId, pinId, existing.rows[0].action]
+                    'UPDATE interactions SET interaction_type = $1, created_at = NOW() WHERE user_id = $2 AND pin_id = $3 AND interaction_type = $4',
+                    ['dislike', userId, pinId, existing.rows[0].interaction_type]
                 );
 
                 // Adjust counts: +1 report, -1 like
@@ -126,7 +126,7 @@ export class InteractionsService {
             } else {
                 // New interaction
                 await client.query(
-                    'INSERT INTO interactions (user_id, pin_id, action) VALUES ($1, $2, $3)',
+                    'INSERT INTO interactions (user_id, pin_id, interaction_type) VALUES ($1, $2, $3)',
                     [userId, pinId, 'dislike']
                 );
 
