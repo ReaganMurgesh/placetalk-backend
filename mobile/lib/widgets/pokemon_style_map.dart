@@ -1756,8 +1756,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   color: Colors.green,
                   onTap: () async {
                     try {
-                      await ref.read(apiClientProvider).likePin(pin.id);
-                      ref.read(discoveryProvider.notifier).incrementLikeLocally(pin.id);
+                      // Go through discovery provider so all map state stays consistent
+                      await ref.read(discoveryProvider.notifier).likePin(pin.id);
+                      // Also refresh diary stats/logs/metrics so counts stay in sync everywhere
+                      ref.invalidate(diaryStatsProvider);
+                      ref.invalidate(diaryPassiveLogProvider);
+                      ref.invalidate(myPinsMetricsProvider);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1780,9 +1784,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   color: Colors.grey,
                   onTap: () async {
                     try {
-                      await ref.read(apiClientProvider).hidePin(pin.id);
-                      // Immediately remove from local state (optimistic)
-                      ref.read(discoveryProvider.notifier).hidePinLocally(pin.id);
+                      // Use discovery provider wrapper (backend + local state)
+                      await ref.read(discoveryProvider.notifier).hidePin(pin.id);
+                      // Refresh diary metrics so hideCount updates in My Pins tab
+                      ref.invalidate(diaryPassiveLogProvider);
+                      ref.invalidate(myPinsMetricsProvider);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1805,7 +1811,10 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   color: Colors.redAccent,
                   onTap: () async {
                     try {
-                      await ref.read(apiClientProvider).reportPin(pin.id);
+                      await ref.read(discoveryProvider.notifier).reportPin(pin.id);
+                      // Diary logs + pin.report_count are updated on backend; refresh metrics here
+                      ref.invalidate(diaryPassiveLogProvider);
+                      ref.invalidate(myPinsMetricsProvider);
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(

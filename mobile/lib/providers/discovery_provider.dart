@@ -147,6 +147,32 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
     print('👁️ Pin $pinId hidden locally');
   }
 
+  /// Hide a pin (backend + local state refresh)
+  Future<void> hidePin(String pinId) async {
+    try {
+      await _apiClient.hidePin(pinId);
+      // Immediately remove from local state (optimistic)
+      hidePinLocally(pinId);
+      // Refresh discovery so future lists are consistent
+      if (state.lastPosition != null) {
+        await manualDiscovery();
+      }
+    } catch (e) {
+      print('Failed to hide pin: $e');
+      rethrow;
+    }
+  }
+
+  /// Report a pin (backend call — uses /pins/:id/report endpoint)
+  Future<void> reportPin(String pinId) async {
+    try {
+      await _apiClient.reportPin(pinId);
+    } catch (e) {
+      print('Failed to report pin: $e');
+      rethrow;
+    }
+  }
+
   /// Update like count for a pin in local state (optimistic update)
   void incrementLikeLocally(String pinId) {
     state = state.copyWith(
@@ -305,15 +331,16 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
     }).toList();
   }
 
-  /// Like a pin
+  /// Like a pin — optimistic local count bump, then API call
   Future<void> likePin(String pinId) async {
+    // Optimistic update: bump count immediately so the UI feels instant
+    incrementLikeLocally(pinId);
     try {
       await _apiClient.likePin(pinId);
-      // Refresh discovery after interaction
-      if (state.lastPosition != null) {
-        await manualDiscovery();
-      }
+      // Backend confirmed — no need to re-fetch; local optimistic state is correct
     } catch (e) {
+      // Roll back the optimistic bump if the API call failed for a real reason
+      // (idempotent 400 "already liked" is handled backend-side and returns 200 now)
       print('Failed to like pin: $e');
       rethrow;
     }

@@ -31,7 +31,10 @@ export class InteractionsService {
 
             if (existing.rows.length > 0) {
                 if (existing.rows[0].interaction_type === 'like') {
-                    throw new Error('Already liked this pin');
+                    // Already liked — idempotent: return current counts quietly
+                    await client.query('ROLLBACK');
+                    const cur = await pool.query('SELECT like_count, dislike_count FROM pins WHERE id = $1', [pinId]);
+                    return { success: true, likeCount: cur.rows[0].like_count, dislikeCount: cur.rows[0].dislike_count };
                 }
 
                 // Flip from dislike → like
@@ -109,7 +112,10 @@ export class InteractionsService {
 
             if (existing.rows.length > 0) {
                 if (existing.rows[0].interaction_type === 'dislike') {
-                    throw new Error('Already reported this pin');
+                    // Already reported — idempotent: return current counts quietly
+                    await client.query('ROLLBACK');
+                    const cur = await pool.query('SELECT like_count, dislike_count FROM pins WHERE id = $1', [pinId]);
+                    return { success: true, likeCount: cur.rows[0].like_count, reportCount: cur.rows[0].dislike_count };
                 }
 
                 // Flip from like → dislike (report)
