@@ -1,10 +1,36 @@
 import { pool } from '../../config/database.js';
 import { redisClient, getRedisStatus } from '../../config/redis.js';
 import { encodeGeohash } from '../../utils/geohash.js';
-import type { CreatePinDTO, PinResponse } from './pins.types.js';
+import type { CreatePinDTO, UpdatePinDTO, PinResponse } from './pins.types.js';
 
-const DEFAULT_PIN_TTL_HOURS = parseInt(process.env.DEFAULT_PIN_TTL_HOURS || '72');
+const DEFAULT_PIN_TTL_HOURS = parseInt(process.env.DEFAULT_PIN_TTL_HOURS || String(365 * 24)); // 1 year
+const MAX_DAILY_PINS = parseInt(process.env.MAX_DAILY_PINS || '3');
 const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
+
+// ── Text validation helper ───────────────────────────────────────────────
+/**
+ * Validates pin text fields and returns an error string or null.
+ * Lengths: title ≤ 10 | directions 50–100 | details 0 or 300–500
+ */
+function validatePinText(data: {
+    title?: string;
+    directions?: string;
+    details?: string | null;
+}): string | null {
+    if (data.title !== undefined) {
+        if (data.title.trim().length === 0) return 'Title is required';
+        if (data.title.length > 10) return 'Title must be 10 characters or fewer';
+    }
+    if (data.directions !== undefined) {
+        if (data.directions.length < 50) return 'Directions must be at least 50 characters';
+        if (data.directions.length > 100) return 'Directions must be 100 characters or fewer';
+    }
+    if (data.details !== undefined && data.details !== null && data.details.trim().length > 0) {
+        if (data.details.length < 300) return 'Details must be at least 300 characters';
+        if (data.details.length > 500) return 'Details must be 500 characters or fewer';
+    }
+    return null;
+}
 
 export class PinsService {
     /**
@@ -22,8 +48,36 @@ export class PinsService {
         console.log(`📍 Location: (${data.lat}, ${data.lon})`);
         console.log(`📝 Title: ${data.title}`);
         console.log(`🏷️ Category: ${data.pinCategory}`);
-        
-        // Step 1: Validate community pin permissions (DISABLED for MVP)
+
+        // Step 0: Validate text lengths (backend guardrail)
+        const textErr = validatePinText({ title: data.title, directions: data.directions, details: data.details });
+        if (textErr) throw Object.assign(new Error(textErr), { statusCode: 400 });
+
+        // Step 0b: Fetch creator snapshot
+        const creatorRow = await pool.query(
+            'SELECT nickname, bio FROM users WHERE id = $1',
+            [userId]
+        );
+        const creatorSnapshot = {
+            nickname: creatorRow.rows[0]?.nickname ?? undefined,
+            bio: creatorRow.rows[0]?.bio ?? undefined,
+        };
+
+        // Step 1a: Enforce 3-pins-per-day quota (spec 2.1)
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const quotaResult = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM pins
+             WHERE created_by = $1 AND created_at >= $2 AND is_deleted = FALSE`,
+            [userId, todayStart]
+        );
+        const todayCount = parseInt(quotaResult.rows[0].cnt, 10);
+        if (todayCount >= MAX_DAILY_PINS) {
+            throw Object.assign(
+                new Error(`Daily limit reached: you can place up to ${MAX_DAILY_PINS} pins per day.`),
+                { statusCode: 429 }
+            );
+        }
         // if (data.pinCategory === 'community') {
         //     const userResult = await pool.query(
         //         'SELECT role FROM users WHERE id = $1',
@@ -36,14 +90,16 @@ export class PinsService {
         // }
 
         // Step 2: Calculate expiration
-        // Community pins: 100 years (essentially permanent)
-        // Normal pins: 72 hours
+        // Community pins: null (no expiry, spec says "permanent")
+        // Normal pins: expires_at = NOW() + 1 year (spec 2.1 default)
+        //   If data.expiresAt is supplied, use it instead (future UI timer dial)
         let expiresAt: Date;
 
         if (data.pinCategory === 'community') {
-            // Community pins last 100 years (essentially permanent)
+            // Community pins: 100 years (essentially permanent)
             expiresAt = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
         } else {
+            // Normal pins: default 1 year; DEFAULT_PIN_TTL_HOURS is now 8760 (1 year)
             expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);
         }
 
@@ -51,12 +107,14 @@ export class PinsService {
         const result = await pool.query(
             `INSERT INTO pins (
         title, directions, details, location, type, pin_category,
-        attribute_id, created_by, visible_from, visible_to, expires_at
+        attribute_id, created_by, visible_from, visible_to, expires_at,
+        external_link, chat_enabled, is_private, creator_snapshot
       )
-      VALUES ($1, $2, $3, ST_MakePoint($4, $5)::geography, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, ST_MakePoint($4, $5)::geography, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING 
         id, title, directions, details, type, pin_category, attribute_id,
         created_by, expires_at, like_count, dislike_count, created_at,
+        external_link, chat_enabled, is_private, creator_snapshot,
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lon`,
             [
@@ -72,6 +130,10 @@ export class PinsService {
                 data.visibleFrom,
                 data.visibleTo,
                 expiresAt,
+                data.externalLink ?? null,
+                data.chatEnabled ?? false,
+                data.isPrivate ?? false,
+                JSON.stringify(creatorSnapshot),
             ]
         );
 
@@ -94,6 +156,11 @@ export class PinsService {
             await redisClient.expire(`geo:${geohash}`, ttlSeconds);
         }
 
+        // Step 4a: Link community pin to its community (find-or-create by title) — spec 3
+        if (data.pinCategory === 'community') {
+            await this._autoLinkCommunity(pin.id, data.communityId, data.title, userId);
+        }
+
         return {
             id: pin.id,
             title: pin.title,
@@ -109,7 +176,35 @@ export class PinsService {
             likeCount: pin.like_count,
             dislikeCount: pin.dislike_count,
             createdAt: pin.created_at,
+            externalLink: pin.external_link,
+            chatEnabled: pin.chat_enabled ?? false,
+            isPrivate: pin.is_private ?? false,
+            communityId: data.communityId,
+            creatorSnapshot: pin.creator_snapshot ?? {},
         };
+    }
+
+    // Auto-link a community pin to its community (spec 3 feed)
+    private async _autoLinkCommunity(pinId: string, communityId: string | undefined, title: string, userId: string): Promise<void> {
+        let cid = communityId;
+        if (!cid) {
+            const existing = await pool.query(`SELECT id FROM communities WHERE name = $1`, [title]);
+            if (existing.rows.length > 0) {
+                cid = existing.rows[0].id;
+            } else {
+                const created = await pool.query(
+                    `INSERT INTO communities (name, description, community_type, created_by)
+                     VALUES ($1, $2, 'open', $3) RETURNING id`,
+                    [title, `Community for ${title}`, userId]
+                );
+                cid = created.rows[0].id;
+                await pool.query(
+                    `INSERT INTO community_members (community_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+                    [cid, userId]
+                );
+            }
+        }
+        await pool.query(`UPDATE pins SET community_id = $1 WHERE id = $2`, [cid, pinId]);
     }
 
     /**
@@ -120,6 +215,7 @@ export class PinsService {
             `SELECT 
         id, title, directions, details, type, pin_category, attribute_id,
         created_by, expires_at, like_count, dislike_count, created_at,
+        external_link, chat_enabled, is_private, creator_snapshot,
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lon
       FROM pins
@@ -147,6 +243,10 @@ export class PinsService {
             likeCount: pin.like_count,
             dislikeCount: pin.dislike_count,
             createdAt: pin.created_at,
+            externalLink: pin.external_link,
+            chatEnabled: pin.chat_enabled ?? false,
+            isPrivate: pin.is_private ?? false,
+            creatorSnapshot: pin.creator_snapshot ?? {},
         };
     }
 
@@ -160,6 +260,7 @@ export class PinsService {
             `SELECT 
         id, title, directions, details, type, pin_category, attribute_id,
         created_by, expires_at, like_count, dislike_count, created_at,
+        external_link, chat_enabled, is_private, creator_snapshot,
         ST_Y(location::geometry) as lat,
         ST_X(location::geometry) as lon
       FROM pins
@@ -194,6 +295,10 @@ export class PinsService {
             likeCount: pin.like_count,
             dislikeCount: pin.dislike_count,
             createdAt: pin.created_at,
+            externalLink: pin.external_link,
+            chatEnabled: pin.chat_enabled ?? false,
+            isPrivate: pin.is_private ?? false,
+            creatorSnapshot: pin.creator_snapshot ?? {},
         }));
     }
 
@@ -290,5 +395,126 @@ export class PinsService {
         } finally {
             client.release();
         }
+    }
+
+    // ── spec 2.4: permission helper ──────────────────────────────────────────
+
+    /**
+     * Returns true if the user can edit/delete the pin.
+     * Rules:
+     *   - is_b2b_partner → always allowed (remote)
+     *   - otherwise → must own the pin AND be within 50 m
+     */
+    private async _canModify(
+        userId: string,
+        pin: { createdBy: string; lat: number; lon: number },
+        userLat: number,
+        userLon: number
+    ): Promise<boolean> {
+        // Check B2B partner flag
+        const userRow = await pool.query(
+            `SELECT is_b2b_partner FROM users WHERE id = $1`,
+            [userId]
+        );
+        if (userRow.rows[0]?.is_b2b_partner) return true;
+
+        // Must be owner
+        if (pin.createdBy !== userId) return false;
+
+        // Must be within 50 m
+        const distRow = await pool.query(
+            `SELECT ST_Distance(
+               ST_MakePoint($1, $2)::geography,
+               ST_MakePoint($3, $4)::geography
+             ) AS dist`,
+            [userLon, userLat, pin.lon, pin.lat]
+        );
+        const dist = parseFloat(distRow.rows[0]?.dist ?? '9999');
+        return dist <= 50;
+    }
+
+    /**
+     * Edit a pin's mutable fields (spec 2.4).
+     * Throws 403 if the user lacks permission.
+     */
+    async updatePin(pinId: string, userId: string, data: UpdatePinDTO): Promise<PinResponse> {
+        const existing = await this.getPinById(pinId);
+        if (!existing) throw Object.assign(new Error('Pin not found'), { statusCode: 404 });
+
+        const allowed = await this._canModify(userId, existing, data.userLat, data.userLon);
+        if (!allowed) {
+            throw Object.assign(
+                new Error('You must be within 50 m of this pin to edit it.'),
+                { statusCode: 403 }
+            );
+        }
+
+        // Validate text lengths for any provided field
+        const textErr = validatePinText({
+            title: data.title,
+            directions: data.directions,
+            details: data.details,
+        });
+        if (textErr) throw Object.assign(new Error(textErr), { statusCode: 400 });
+
+        const result = await pool.query(
+            `UPDATE pins
+             SET title       = COALESCE($1, title),
+                 directions  = COALESCE($2, directions),
+                 details     = COALESCE($3, details),
+                 external_link = COALESCE($4, external_link),
+                 chat_enabled = COALESCE($5, chat_enabled)
+             WHERE id = $6 AND is_deleted = FALSE
+             RETURNING
+               id, title, directions, details, type, pin_category, attribute_id,
+               created_by, expires_at, like_count, dislike_count, created_at,
+               external_link, chat_enabled, is_private, creator_snapshot,
+               ST_Y(location::geometry) as lat,
+               ST_X(location::geometry) as lon`,
+            [
+                data.title ?? null,
+                data.directions ?? null,
+                data.details ?? null,
+                data.externalLink ?? null,
+                data.chatEnabled ?? null,
+                pinId,
+            ]
+        );
+
+        const pin = result.rows[0];
+        return {
+            id: pin.id, title: pin.title, directions: pin.directions,
+            details: pin.details, lat: pin.lat, lon: pin.lon,
+            type: pin.type, pinCategory: pin.pin_category,
+            attributeId: pin.attribute_id, createdBy: pin.created_by,
+            expiresAt: pin.expires_at, likeCount: pin.like_count,
+            dislikeCount: pin.dislike_count, createdAt: pin.created_at,
+            externalLink: pin.external_link, chatEnabled: pin.chat_enabled ?? false,
+            isPrivate: pin.is_private ?? false,
+            creatorSnapshot: pin.creator_snapshot ?? {},
+        };
+    }
+
+    /**
+     * Soft-delete a pin (spec 2.4).
+     * Throws 403 if the user lacks permission.
+     */
+    async deletePin(pinId: string, userId: string, userLat: number, userLon: number): Promise<void> {
+        const existing = await this.getPinById(pinId);
+        if (!existing) throw Object.assign(new Error('Pin not found'), { statusCode: 404 });
+
+        const allowed = await this._canModify(userId, existing, userLat, userLon);
+        if (!allowed) {
+            throw Object.assign(
+                new Error('You must be within 50 m of this pin to delete it.'),
+                { statusCode: 403 }
+            );
+        }
+
+        await pool.query(
+            `UPDATE pins SET is_deleted = TRUE WHERE id = $1`,
+            [pinId]
+        );
+        console.log(`🗑️ Pin ${pinId} soft-deleted by ${userId}`);
     }
 }

@@ -41,7 +41,7 @@ export function getNeighbors(hash: string): string[] {
     const neighbors = geohash.neighbors(hash);
     return [
         hash, // center
-        ...Object.values(neighbors), // 8 neighbors
+        ...(Object.values(neighbors) as string[]), // 8 neighbors
     ];
 }
 

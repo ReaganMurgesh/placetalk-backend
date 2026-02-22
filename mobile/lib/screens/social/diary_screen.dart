@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:timeline_tile/timeline_tile.dart';
 import 'package:placetalk/models/diary.dart' hide Badge;
 import 'package:placetalk/models/diary.dart' as diary show Badge;
 import 'package:placetalk/theme/japanese_theme.dart' hide JapaneseColors;
 import 'package:placetalk/providers/diary_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
+import 'package:placetalk/providers/discovery_provider.dart';
 import 'package:placetalk/services/navigation_service.dart';
 import 'package:confetti/confetti.dart';
 
@@ -249,6 +251,21 @@ class DiaryScreen extends ConsumerWidget {
                 ),
               ),
               actions: [
+                // spec 4.2 — full-text search
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.search, color: _DiaryColors.sumiIro, size: 20),
+                  ),
+                  onPressed: () => showSearch(
+                    context: context,
+                    delegate: _DiarySearchDelegate(ref),
+                  ),
+                ),
                 IconButton(
                   icon: Container(
                     padding: const EdgeInsets.all(8),
@@ -262,6 +279,8 @@ class DiaryScreen extends ConsumerWidget {
                     ref.invalidate(diaryStatsProvider);
                     ref.invalidate(diaryTimelineProvider);
                     ref.invalidate(myPinsProvider);
+                    ref.invalidate(diaryPassiveLogProvider);
+                    ref.invalidate(myPinsMetricsProvider);
                   },
                 ),
               ],
@@ -410,80 +429,98 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 class _ExploredTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final timelineAsync = ref.watch(diaryTimelineProvider);
+    final sort = ref.watch(passiveLogSortProvider);
+    final logAsync = ref.watch(diaryPassiveLogProvider);
 
-    return timelineAsync.when(
-      data: (timeline) {
-        // Filter out "Created" pins (they belong in My Pins)
-        final passedPins = timeline.where((e) => e.activityType != 'created').toList();
-
-        if (passedPins.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(32),
-            color: _DiaryColors.shirotsurubamiIro,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 140,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    color: _DiaryColors.sakuraPink.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _DiaryColors.sakuraPink.withOpacity(0.5),
-                      width: 3,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Text('🚶', style: TextStyle(fontSize: 60)),
-                  ),
-                ),
-                const SizedBox(height: 28),
-                const Text(
-                  '旅を始めよう',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: _DiaryColors.sumiIro,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Start Your Journey',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: _DiaryColors.akeIro,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Walk near pins to discover hidden treasures',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14, 
-                    color: _DiaryColors.sumiIro.withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-        
+    return logAsync.when(
+      data: (entries) {
         return Container(
           color: _DiaryColors.shirotsurubamiIro,
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: passedPins.length,
-            itemBuilder: (context, index) {
-              return _JapaneseTimelineCard(
-                entry: passedPins[index],
-                isFirst: index == 0,
-                isLast: index == passedPins.length - 1,
-              );
-            },
+          child: Column(
+            children: [
+              // ── Sort pills ────────────────────────────────────────────
+              Container(
+                color: _DiaryColors.shirotsurubamiIro,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    _SortPill(
+                      label: '📅 Date',
+                      active: sort == 'recent',
+                      onTap: () => ref.read(passiveLogSortProvider.notifier).state = 'recent',
+                    ),
+                    const SizedBox(width: 10),
+                    _SortPill(
+                      label: '❤️ Likes',
+                      active: sort == 'like_count',
+                      onTap: () => ref.read(passiveLogSortProvider.notifier).state = 'like_count',
+                    ),
+                  ],
+                ),
+              ),
+              // ── List ─────────────────────────────────────────────────
+              if (entries.isEmpty)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 140,
+                          height: 140,
+                          decoration: BoxDecoration(
+                            color: _DiaryColors.sakuraPink.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: _DiaryColors.sakuraPink.withOpacity(0.5),
+                              width: 3,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Text('🚶', style: TextStyle(fontSize: 60)),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        const Text(
+                          '旅を始めよう',
+                          style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.w700,
+                            color: _DiaryColors.sumiIro, letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Start Your Journey',
+                          style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w500,
+                            color: _DiaryColors.akeIro,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Walk within 20 m of a pin to ghost-log it here',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: _DiaryColors.sumiIro.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: entries.length,
+                    itemBuilder: (context, index) {
+                      return _GhostVerifiedCard(entry: entries[index]);
+                    },
+                  ),
+                ),
+            ],
           ),
         );
       },
@@ -493,9 +530,7 @@ class _ExploredTab extends ConsumerWidget {
           children: [
             const Text('🌸', style: TextStyle(fontSize: 40)),
             const SizedBox(height: 16),
-            CircularProgressIndicator(
-              color: _DiaryColors.sakuraPink,
-            ),
+            CircularProgressIndicator(color: _DiaryColors.sakuraPink),
           ],
         ),
       ),
@@ -504,92 +539,317 @@ class _ExploredTab extends ConsumerWidget {
   }
 }
 
+// ── Sort Pill ────────────────────────────────────────────────────────────────
+class _SortPill extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _SortPill({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? _DiaryColors.akeIro : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? _DiaryColors.akeIro : _DiaryColors.sakuraPink.withOpacity(0.5),
+          ),
+          boxShadow: active
+              ? [BoxShadow(color: _DiaryColors.akeIro.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: active ? Colors.white : _DiaryColors.sumiIro,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Ghost / Verified Card ─────────────────────────────────────────────────────
+class _GhostVerifiedCard extends ConsumerWidget {
+  final PassiveLogEntry entry;
+
+  const _GhostVerifiedCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isGhost = !entry.isVerified;
+
+    return GestureDetector(
+      onTap: () {
+        // spec 4.1: fly map camera to this pin then pop back
+        ref.read(mapFocusProvider.notifier).state = LatLng(entry.pinLat, entry.pinLon);
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isGhost
+                ? Colors.grey.withOpacity(0.3)
+                : _DiaryColors.wakatake.withOpacity(0.5),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (isGhost ? Colors.grey : _DiaryColors.wakatake).withOpacity(0.12),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Badge icon
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isGhost
+                      ? Colors.grey.withOpacity(0.12)
+                      : _DiaryColors.wakatake.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    isGhost ? '👻' : '✅',
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            entry.pinTitle,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _DiaryColors.sumiIro,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isGhost
+                                ? Colors.grey.withOpacity(0.12)
+                                : _DiaryColors.wakatake.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            isGhost ? 'Ghost' : 'Verified',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isGhost ? Colors.grey[600] : _DiaryColors.wakatake,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Text(
+                          '❤️ ${entry.pinLikeCount}',
+                          style: TextStyle(fontSize: 12, color: _DiaryColors.sumiIro.withOpacity(0.6)),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _formatTime(entry.passedAt),
+                          style: TextStyle(fontSize: 12, color: _DiaryColors.sumiIro.withOpacity(0.5)),
+                        ),
+                      ],
+                    ),
+                    if (isGhost) ...[
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          try {
+                            await ref.read(apiClientProvider).verifyGhostPin(entry.pinId);
+                            ref.invalidate(diaryPassiveLogProvider);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('✅ Verified! Pin liked.'),
+                                  backgroundColor: Color(0xFF68BE8D),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.favorite_border, size: 16),
+                        label: const Text('Verify (Like)'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _DiaryColors.akeIro,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'just now';
+  }
+}
+
 // 🌸 Japanese-styled My Pins Tab
 class _JapaneseMyPinsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final myPinsAsync = ref.watch(myPinsProvider);
+    final myPinsAsync = ref.watch(myPinsMetricsProvider);
+    final lastSync = ref.watch(syncCooldownProvider);
+    final syncAge = lastSync != null ? DateTime.now().difference(lastSync).inSeconds : 999;
+    final cooldownActive = syncAge < 30;
+    final secondsLeft = cooldownActive ? 30 - syncAge : 0;
 
     return myPinsAsync.when(
       data: (pins) {
-        print('📱 DiaryScreen: Displaying ${pins.length} pins in My Pins tab');
-        for (int i = 0; i < pins.length; i++) {
-          final pin = pins[i];
-          print('📱 Pin $i: "${pin.title}" (created_by: ${pin.createdBy})');
-        }
-        
-        if (pins.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(32),
-            color: _DiaryColors.shirotsurubamiIro,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 140,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    color: _DiaryColors.akeIro.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _DiaryColors.akeIro.withOpacity(0.5),
-                      width: 3,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Text('📍', style: TextStyle(fontSize: 60)),
-                  ),
-                ),
-                const SizedBox(height: 28),
-                const Text(
-                  '最初のピン',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: _DiaryColors.sumiIro,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Create Your First Pin',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: _DiaryColors.akeIro,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Share special places with other explorers',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14, 
-                    color: _DiaryColors.sumiIro.withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-        
         return Container(
           color: _DiaryColors.shirotsurubamiIro,
-          child: RefreshIndicator(
-            color: _DiaryColors.akeIro,
-            onRefresh: () async {
-              print('🔄 DiaryScreen: FORCE REFRESH - Invalidating myPinsProvider');
-              ref.invalidate(myPinsProvider);
-              ref.invalidate(diaryStatsProvider);
-            },
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: pins.length,
-              itemBuilder: (context, index) {
-                final pin = pins[index];
-                return _JapanesePinCard(pin: pin);
-              },
-            ),
+          child: Column(
+            children: [
+              // ── Sync header ───────────────────────────────────────────
+              Container(
+                color: _DiaryColors.shirotsurubamiIro,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      '私のピン  (${pins.length})',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: _DiaryColors.sumiIro,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: cooldownActive
+                          ? null
+                          : () {
+                              ref.invalidate(myPinsMetricsProvider);
+                              ref.invalidate(diaryStatsProvider);
+                              ref.read(syncCooldownProvider.notifier).state = DateTime.now();
+                            },
+                      icon: const Icon(Icons.sync, size: 18),
+                      label: Text(
+                        cooldownActive ? '🔄 ${secondsLeft}s' : '🔄 Sync',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: cooldownActive
+                            ? _DiaryColors.sumiIro.withOpacity(0.4)
+                            : _DiaryColors.akeIro,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (pins.isEmpty)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 140,
+                          height: 140,
+                          decoration: BoxDecoration(
+                            color: _DiaryColors.akeIro.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: _DiaryColors.akeIro.withOpacity(0.5),
+                              width: 3,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Text('📍', style: TextStyle(fontSize: 60)),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        const Text(
+                          '最初のピン',
+                          style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.w700,
+                            color: _DiaryColors.sumiIro, letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Create Your First Pin',
+                          style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w500,
+                            color: _DiaryColors.akeIro,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Share special places with other explorers',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: _DiaryColors.sumiIro.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: pins.length,
+                    itemBuilder: (context, index) {
+                      return _JapanesePinCard(pin: pins[index]);
+                    },
+                  ),
+                ),
+            ],
           ),
         );
       },
@@ -599,9 +859,7 @@ class _JapaneseMyPinsTab extends ConsumerWidget {
           children: [
             const Text('🌸', style: TextStyle(fontSize: 40)),
             const SizedBox(height: 16),
-            CircularProgressIndicator(
-              color: _DiaryColors.akeIro,
-            ),
+            CircularProgressIndicator(color: _DiaryColors.akeIro),
           ],
         ),
       ),
@@ -612,14 +870,14 @@ class _JapaneseMyPinsTab extends ConsumerWidget {
 
 // 🎌 Japanese-styled pin card for "My Pins" tab
 class _JapanesePinCard extends ConsumerWidget {
-  final dynamic pin;
+  final DiaryPinMetrics pin;
 
   const _JapanesePinCard({required this.pin});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool isCommunity = pin.pinCategory == 'community';
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -644,23 +902,20 @@ class _JapanesePinCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                // Japanese-styled icon container
+                // Icon container
                 Container(
                   width: 55,
                   height: 55,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: isCommunity 
+                      colors: isCommunity
                           ? [_DiaryColors.kitsune.withOpacity(0.9), _DiaryColors.kitsune]
                           : [_DiaryColors.akeIro.withOpacity(0.9), _DiaryColors.akeIro],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 2,
-                    ),
+                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
                   ),
                   child: Center(
                     child: Text(
@@ -677,8 +932,7 @@ class _JapanesePinCard extends ConsumerWidget {
                       Text(
                         pin.title,
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 18, fontWeight: FontWeight.bold,
                           color: _DiaryColors.sumiIro,
                         ),
                       ),
@@ -686,12 +940,12 @@ class _JapanesePinCard extends ConsumerWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: isCommunity 
+                          color: isCommunity
                               ? _DiaryColors.kitsune.withOpacity(0.1)
                               : _DiaryColors.sakuraPink.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: isCommunity 
+                            color: isCommunity
                                 ? _DiaryColors.kitsune.withOpacity(0.3)
                                 : _DiaryColors.sakuraPink.withOpacity(0.5),
                           ),
@@ -710,8 +964,7 @@ class _JapanesePinCard extends ConsumerWidget {
                             Text(
                               isCommunity ? '永遠' : '活動中',
                               style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 12, fontWeight: FontWeight.w600,
                                 color: isCommunity ? _DiaryColors.kitsune : _DiaryColors.akeIro,
                               ),
                             ),
@@ -724,7 +977,7 @@ class _JapanesePinCard extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            // Divider with sakura pattern
+            // Divider
             Row(
               children: [
                 Expanded(child: Divider(color: _DiaryColors.sakuraPink.withOpacity(0.3))),
@@ -735,51 +988,46 @@ class _JapanesePinCard extends ConsumerWidget {
                 Expanded(child: Divider(color: _DiaryColors.sakuraPink.withOpacity(0.3))),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
+            const SizedBox(height: 12),
+            // ── Engagement metric chips (spec 4.1 Tab 2) ──────────────
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
-                _JapaneseStatChip(
-                  emoji: '👍',
-                  label: pin.likeCount.toString(),
-                  color: _DiaryColors.wakatake,
-                ),
-                const SizedBox(width: 12),
-                _JapaneseStatChip(
-                  emoji: '👎',
-                  label: pin.dislikeCount.toString(),
-                  color: _DiaryColors.akeIro,
-                ),
-                const Spacer(),
-                // Navigate button with Japanese styling
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final success = await NavigationService.navigateToPin(
-                      pinLat: pin.lat,
-                      pinLon: pin.lon,
-                      pinTitle: pin.title,
-                    );
-                    if (!success && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('Unable to open maps'),
-                          backgroundColor: _DiaryColors.akeIro,
-                        ),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.directions, size: 18),
-                  label: const Text('案内'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _DiaryColors.akeIro,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    elevation: 3,
-                  ),
-                ),
+                _JapaneseStatChip(emoji: '👍', label: pin.likeCount.toString(), color: _DiaryColors.wakatake),
+                _JapaneseStatChip(emoji: '👎', label: pin.dislikeCount.toString(), color: _DiaryColors.akeIro),
+                _JapaneseStatChip(emoji: '👣', label: pin.passThrough.toString(), color: _DiaryColors.aiIro),
+                _JapaneseStatChip(emoji: '🙈', label: pin.hideCount.toString(), color: _DiaryColors.kitsune),
+                _JapaneseStatChip(emoji: '🚩', label: pin.reportCount.toString(), color: Colors.red.shade400),
               ],
+            ),
+            const SizedBox(height: 12),
+            // Navigate button
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final success = await NavigationService.navigateToPin(
+                    pinLat: pin.lat,
+                    pinLon: pin.lon,
+                    pinTitle: pin.title,
+                  );
+                  if (!success && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Unable to open maps')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.directions, size: 18),
+                label: const Text('案内'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _DiaryColors.akeIro,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                  elevation: 3,
+                ),
+              ),
             ),
           ],
         ),
@@ -1285,5 +1533,199 @@ class _TimelineCard extends StatelessWidget {
     } else {
       return '${date.day}/${date.month}/${date.year}';
     }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// spec 4.2 — Diary Full-Text Search Delegate
+// ════════════════════════════════════════════════════════════════════════════
+class _DiarySearchDelegate extends SearchDelegate<DiarySearchResult?> {
+  final WidgetRef _ref;
+
+  _DiarySearchDelegate(this._ref);
+
+  @override
+  String get searchFieldLabel => 'Search diary…';
+
+  @override
+  ThemeData appBarTheme(BuildContext context) {
+    return Theme.of(context).copyWith(
+      appBarTheme: const AppBarTheme(
+        backgroundColor: _DiaryColors.sakuraPink,
+        foregroundColor: _DiaryColors.sumiIro,
+        elevation: 0,
+      ),
+      inputDecorationTheme: const InputDecorationTheme(
+        border: InputBorder.none,
+        hintStyle: TextStyle(color: _DiaryColors.sumiIro),
+      ),
+    );
+  }
+
+  @override
+  List<Widget> buildActions(BuildContext context) => [
+        if (query.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              query = '';
+              _ref.read(diarySearchQueryProvider.notifier).state = '';
+            },
+          ),
+      ];
+
+  @override
+  Widget buildLeading(BuildContext context) => IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => close(context, null),
+      );
+
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    _ref.read(diarySearchQueryProvider.notifier).state = query;
+    return _buildResults(context);
+  }
+
+  @override
+  Widget buildResults(BuildContext context) {
+    _ref.read(diarySearchQueryProvider.notifier).state = query;
+    return _buildResults(context);
+  }
+
+  Widget _buildResults(BuildContext context) {
+    if (query.trim().isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('🔍', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 12),
+            Text(
+              'Type to search your diary',
+              style: TextStyle(
+                fontSize: 16, color: _DiaryColors.sumiIro.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Use a Consumer to watch the search provider
+    return Consumer(
+      builder: (context, ref, _) {
+        final searchAsync = ref.watch(diarySearchProvider);
+        return searchAsync.when(
+          data: (results) {
+            if (results.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('😶', style: TextStyle(fontSize: 48)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No results for "$query"',
+                      style: const TextStyle(fontSize: 16, color: _DiaryColors.sumiIro),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: results.length,
+              itemBuilder: (context, index) =>
+                  _SearchResultCard(result: results[index], delegate: this, searchRef: ref),
+            );
+          },
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: _DiaryColors.akeIro),
+          ),
+          error: (e, _) => Center(child: Text('Error: $e')),
+        );
+      },
+    );
+  }
+}
+
+// ── Search result card ────────────────────────────────────────────────────────
+class _SearchResultCard extends StatelessWidget {
+  final DiarySearchResult result;
+  final _DiarySearchDelegate delegate;
+  final WidgetRef searchRef;
+
+  const _SearchResultCard({
+    required this.result,
+    required this.delegate,
+    required this.searchRef,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isGhost = result.activityType == 'ghost_pass' && !result.isVerified;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _DiaryColors.sakuraPink.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: _DiaryColors.sakuraPink.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Text(
+              isGhost ? '👻' : '✅',
+              style: const TextStyle(fontSize: 28),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    result.pinTitle,
+                    style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.bold,
+                      color: _DiaryColors.sumiIro,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    result.pinDirections.isNotEmpty
+                        ? result.pinDirections
+                        : result.pinCategory,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12, color: _DiaryColors.sumiIro.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                searchRef.read(mapFocusProvider.notifier).state =
+                    LatLng(result.pinLat, result.pinLon);
+                delegate.close(context, result);
+                Navigator.of(context).popUntil((r) => r.isFirst);
+              },
+              style: TextButton.styleFrom(foregroundColor: _DiaryColors.akeIro),
+              child: const Text('View\non Map', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

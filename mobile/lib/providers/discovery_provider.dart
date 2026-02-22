@@ -1,10 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:placetalk/services/api_client.dart';
 import 'package:placetalk/services/location_service.dart';
 import 'package:placetalk/models/pin.dart';
 import 'package:placetalk/models/user_pin_interaction.dart';
 import 'package:placetalk/providers/auth_provider.dart';
+
+// ── spec 3.1: "View on Map" — community feed sets this; map widget flies to it
+final mapFocusProvider = StateProvider<LatLng?>((ref) => null);
 
 /// Discovery state
 class DiscoveryState {

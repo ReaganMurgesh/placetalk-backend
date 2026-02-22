@@ -114,6 +114,35 @@ class GeocodingService {
     }
   }
 
+  /// Forward geocode: search a place name → LatLng.
+  /// Uses LocationIQ /search endpoint (same free API key).
+  /// Returns null if not found or API key not set.
+  static Future<dynamic> forwardGeocode(String query) async {
+    if (ApiConfig.locationIqKey.isEmpty || query.trim().isEmpty) return null;
+    try {
+      final resp = await _dio.get('/search', queryParameters: {
+        'key': ApiConfig.locationIqKey,
+        'q': query.trim(),
+        'format': 'json',
+        'limit': 1,
+      });
+      final data = resp.data;
+      if (data is List && data.isNotEmpty) {
+        final first = data[0] as Map<String, dynamic>;
+        final lat = double.tryParse(first['lat']?.toString() ?? '');
+        final lon = double.tryParse(first['lon']?.toString() ?? '');
+        if (lat != null && lon != null) {
+          // Return as a Map so callers don't need to import latlong2 here
+          return {'lat': lat, 'lon': lon};
+        }
+      }
+      return null;
+    } catch (e) {
+      print('\u26a0\ufe0f GeocodingService: forwardGeocode failed — \$e');
+      return null;
+    }
+  }
+
   /// Clear the in-memory cache (useful after key change)
   static void clearCache() => _cache.clear();
 }

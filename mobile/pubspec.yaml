@@ -70,6 +70,7 @@ dependencies:
   uuid: ^4.3.3
   flutter_polyline_points: ^3.1.0
   url_launcher: ^6.2.4          # Launch external apps (maps)
+  socket_io_client: ^2.0.3      # Real-time community chat
 
 dev_dependencies:
   flutter_test:

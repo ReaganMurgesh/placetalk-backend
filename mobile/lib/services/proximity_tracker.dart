@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
+import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/services/notification_service.dart';
 import 'package:placetalk/services/location_service.dart';
 
@@ -17,22 +18,27 @@ final proximityTrackingProvider =
 
 class ProximityState {
   final Set<String> notifiedPinIds;
+  /// spec 4.1: pins auto-logged as ghost_pass (20 m)
+  final Set<String> ghostLoggedPinIds;
   final int checkCount;
   final Position? lastPosition;
 
   ProximityState({
     this.notifiedPinIds = const {},
+    this.ghostLoggedPinIds = const {},
     this.checkCount = 0,
     this.lastPosition,
   });
 
   ProximityState copyWith({
     Set<String>? notifiedPinIds,
+    Set<String>? ghostLoggedPinIds,
     int? checkCount,
     Position? lastPosition,
   }) {
     return ProximityState(
       notifiedPinIds: notifiedPinIds ?? this.notifiedPinIds,
+      ghostLoggedPinIds: ghostLoggedPinIds ?? this.ghostLoggedPinIds,
       checkCount: checkCount ?? this.checkCount,
       lastPosition: lastPosition ?? this.lastPosition,
     );
@@ -88,10 +94,9 @@ class ProximityTracker extends StateNotifier<ProximityState> {
 
         // If within 50m and not already notified
         if (distance <= 50 && !state.notifiedPinIds.contains(pin.id)) {
-          await _notificationService.showProximityAlert(
-            pinId: pin.id,
-            pinTitle: pin.title,
-            distanceMeters: distance,
+          await _notificationService.showNotification(
+            title: pin.title,
+            body: '${distance.toStringAsFixed(0)}m away',
           );
 
           // Mark as notified
@@ -103,12 +108,29 @@ class ProximityTracker extends StateNotifier<ProximityState> {
           print('🔔 Proximity alert sent: ${pin.title} at ${distance.toStringAsFixed(0)}m');
         }
 
-        // If moved away (>100m), clear notification state
+        // spec 4.1: within 20m and not yet ghost-logged → auto-record ghost_pass
+        if (distance <= 20 && !state.ghostLoggedPinIds.contains(pin.id)) {
+          final apiClient = _ref.read(apiClientProvider);
+          apiClient
+              .logActivity(pin.id, 'ghost_pass')
+              .catchError((e) => print('⚠️ ghost_pass log failed: $e'));
+          state = state.copyWith(
+            ghostLoggedPinIds: {...state.ghostLoggedPinIds, pin.id},
+          );
+          print('👻 Ghost pass logged: ${pin.title} at ${distance.toStringAsFixed(0)}m');
+        }
+
+        // If moved away (>100m), clear notification + ghost state
         if (distance > 100 && state.notifiedPinIds.contains(pin.id)) {
           state = state.copyWith(
             notifiedPinIds: state.notifiedPinIds.where((id) => id != pin.id).toSet(),
           );
           print('🔕 Moved away from: ${pin.title}');
+        }
+        if (distance > 100 && state.ghostLoggedPinIds.contains(pin.id)) {
+          state = state.copyWith(
+            ghostLoggedPinIds: state.ghostLoggedPinIds.where((id) => id != pin.id).toSet(),
+          );
         }
       }
     } catch (e) {

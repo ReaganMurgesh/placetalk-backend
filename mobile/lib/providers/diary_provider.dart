@@ -52,3 +52,50 @@ final myPinsProvider = FutureProvider<List<Pin>>((ref) async {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// spec 4.1 Tab 1 — Passive Log (ghost / verified)
+// ---------------------------------------------------------------------------
+
+/// 'recent' or 'like_count'
+final passiveLogSortProvider = StateProvider<String>((ref) => 'recent');
+
+final diaryPassiveLogProvider = FutureProvider<List<PassiveLogEntry>>((ref) async {
+  final sort = ref.watch(passiveLogSortProvider);
+  final apiClient = ref.watch(apiClientProvider);
+  final raw = await apiClient.getDiaryPassiveLog(sort: sort);
+  return raw
+      .map((j) => PassiveLogEntry.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+// ---------------------------------------------------------------------------
+// spec 4.1 Tab 2 — My Pins with engagement metrics
+// ---------------------------------------------------------------------------
+
+final myPinsMetricsProvider = FutureProvider<List<DiaryPinMetrics>>((ref) async {
+  final apiClient = ref.watch(apiClientProvider);
+  final raw = await apiClient.getDiaryMyPinsMetrics();
+  return raw
+      .map((j) => DiaryPinMetrics.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+/// Stores the [DateTime] when the last manual sync finished (for 30 s cooldown).
+final syncCooldownProvider = StateProvider<DateTime?>((ref) => null);
+
+// ---------------------------------------------------------------------------
+// spec 4.2 — Full-text search
+// ---------------------------------------------------------------------------
+
+final diarySearchQueryProvider = StateProvider<String>((ref) => '');
+
+final diarySearchProvider = FutureProvider<List<DiarySearchResult>>((ref) async {
+  final query = ref.watch(diarySearchQueryProvider).trim();
+  if (query.isEmpty) return [];
+  final apiClient = ref.watch(apiClientProvider);
+  final raw = await apiClient.searchDiary(query);
+  return raw
+      .map((j) => DiarySearchResult.fromJson(j as Map<String, dynamic>))
+      .toList();
+});

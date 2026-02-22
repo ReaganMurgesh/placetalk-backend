@@ -53,6 +53,9 @@ class ApiClient {
     required String role,
     String? homeRegion,
     String? country,
+    String? nickname,
+    String? bio,
+    String? username,
   }) async {
     final response = await _dio.post(
       ApiConfig.authRegister,
@@ -63,6 +66,9 @@ class ApiClient {
         'role': role,
         'homeRegion': homeRegion,
         'country': country ?? 'Japan',
+        if (nickname != null) 'nickname': nickname,
+        if (bio != null) 'bio': bio,
+        if (username != null) 'username': username,
       },
     );
     return response.data;
@@ -84,6 +90,25 @@ class ApiClient {
 
   Future<User> getCurrentUser() async {
     final response = await _dio.get(ApiConfig.authMe);
+    return User.fromJson(response.data['user']);
+  }
+
+  /// Update the current user's display profile (nickname, bio, username).
+  /// Fields are optional — only provided fields are updated.
+  Future<User> updateProfile({
+    String? nickname,
+    String? bio,
+    String? username,
+  }) async {
+    final body = <String, dynamic>{};
+    if (nickname != null) body['nickname'] = nickname;
+    if (bio != null) body['bio'] = bio;
+    if (username != null) body['username'] = username;
+
+    final response = await _dio.patch(
+      ApiConfig.authProfile,
+      data: body,
+    );
     return User.fromJson(response.data['user']);
   }
 
@@ -144,6 +169,9 @@ class ApiClient {
     String? attributeId,
     String? visibleFrom,
     String? visibleTo,
+    String? externalLink,
+    bool chatEnabled = false,
+    bool isPrivate = false,
   }) async {
     final response = await _dio.post(
       ApiConfig.pinsCreate,
@@ -158,10 +186,51 @@ class ApiClient {
         'attributeId': attributeId,
         'visibleFrom': visibleFrom,
         'visibleTo': visibleTo,
+        'externalLink': externalLink,
+        'chatEnabled': chatEnabled,
+        'isPrivate': isPrivate,
       },
     );
     
     return Pin.fromJson(response.data['pin']);
+  }
+
+  /// Spec 2.4: Edit a pin. Caller must supply current GPS coords for 50m check.
+  Future<Pin> updatePin(
+    String pinId, {
+    String? title,
+    String? directions,
+    String? details,
+    String? externalLink,
+    bool? chatEnabled,
+    required double userLat,
+    required double userLon,
+  }) async {
+    final response = await _dio.put(
+      '/pins/$pinId',
+      data: {
+        if (title != null) 'title': title,
+        if (directions != null) 'directions': directions,
+        if (details != null) 'details': details,
+        if (externalLink != null) 'externalLink': externalLink,
+        if (chatEnabled != null) 'chatEnabled': chatEnabled,
+        'userLat': userLat,
+        'userLon': userLon,
+      },
+    );
+    return Pin.fromJson(response.data['pin']);
+  }
+
+  /// Spec 2.4: Soft-delete a pin. Caller must supply current GPS coords for 50m check.
+  Future<void> deletePin(
+    String pinId, {
+    required double userLat,
+    required double userLon,
+  }) async {
+    await _dio.delete(
+      '/pins/$pinId',
+      data: {'userLat': userLat, 'userLon': userLon},
+    );
   }
 
   Future<Pin> getPinById(String pinId) async {
@@ -265,9 +334,77 @@ class ApiClient {
 
   Future<void> toggleReaction(String messageId, String emoji) async {
     await _dio.post(
-      '/messages/$messageId/reactions',
+      '/communities/messages/$messageId/reactions',
       data: {'emoji': emoji},
     );
+  }
+
+  // ── spec 3.1: Community pin feed ─────────────────────────────────────────
+  Future<List<dynamic>> getCommunityFeed(String communityId, {int limit = 30, int offset = 0}) async {
+    final response = await _dio.get(
+      '/communities/$communityId/feed',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return response.data['feed'] ?? [];
+  }
+
+  // ── spec 3.2: Invite link management ─────────────────────────────────────
+  Future<Map<String, dynamic>> createCommunityInvite(String communityId) async {
+    final response = await _dio.post('/communities/$communityId/invite');
+    return response.data; // { invite: {...}, inviteUrl: '/join/<code>' }
+  }
+
+  Future<Map<String, dynamic>> joinByInviteCode(String code) async {
+    final response = await _dio.post('/communities/join-by-invite/$code');
+    return response.data['community'];
+  }
+
+  // ── spec 3.3 + 3.4: Per-member settings (notifications + hide) ───────────
+  Future<void> updateCommunityMemberSettings(
+    String communityId, {
+    bool? notificationsOn,
+    bool? hometownNotify,
+    bool? isHidden,
+    bool? hideMapPins,
+  }) async {
+    await _dio.put('/communities/$communityId/member-settings', data: {
+      if (notificationsOn != null) 'notificationsOn': notificationsOn,
+      if (hometownNotify != null) 'hometownNotify': hometownNotify,
+      if (isHidden != null) 'isHidden': isHidden,
+      if (hideMapPins != null) 'hideMapPins': hideMapPins,
+    });
+  }
+
+  // ── spec 3.4: Like / unlike community ────────────────────────────────────
+  Future<int> likeCommunity(String communityId) async {
+    final response = await _dio.post('/communities/$communityId/like');
+    return (response.data['likeCount'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> unlikeCommunity(String communityId) async {
+    final response = await _dio.delete('/communities/$communityId/like');
+    return (response.data['likeCount'] as num?)?.toInt() ?? 0;
+  }
+
+  // ── spec 3.4: Report community ────────────────────────────────────────────
+  Future<void> reportCommunity(String communityId, String reason) async {
+    await _dio.post('/communities/$communityId/report', data: {'reason': reason});
+  }
+
+  // ── spec 3.5: Communities near location (empty state suggestion) ──────────
+  Future<List<dynamic>> getCommunitiesNear(double lat, double lon, {double radiusMeters = 5000}) async {
+    final response = await _dio.get('/communities/near', queryParameters: {
+      'lat': lat,
+      'lon': lon,
+      'radius': radiusMeters,
+    });
+    return response.data['communities'] ?? [];
+  }
+
+  // ── spec 3: Community detail by ID ────────────────────────────────────────
+  Future<Map<String, dynamic>> getCommunityById(String communityId) async {
+    final response = await _dio.get('/communities/$communityId');
+    return response.data['community'];
   }
 
   // ========== Diary ==========
@@ -295,5 +432,33 @@ class ApiClient {
         'metadata': metadata,
       },
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // spec 4.1 Tab 1 — Passive log
+  // -------------------------------------------------------------------------
+  Future<List<dynamic>> getDiaryPassiveLog({String sort = 'recent'}) async {
+    final response = await _dio.get('/diary/passive-log', queryParameters: {'sort': sort});
+    return response.data['entries'] ?? [];
+  }
+
+  Future<void> verifyGhostPin(String pinId) async {
+    await _dio.post('/diary/ghost/$pinId/verify');
+  }
+
+  // -------------------------------------------------------------------------
+  // spec 4.1 Tab 2 — My Pins with engagement metrics
+  // -------------------------------------------------------------------------
+  Future<List<dynamic>> getDiaryMyPinsMetrics() async {
+    final response = await _dio.get('/diary/my-pins-metrics');
+    return response.data['pins'] ?? [];
+  }
+
+  // -------------------------------------------------------------------------
+  // spec 4.2 — Full-text diary search
+  // -------------------------------------------------------------------------
+  Future<List<dynamic>> searchDiary(String query) async {
+    final response = await _dio.get('/diary/search', queryParameters: {'q': query});
+    return response.data['results'] ?? [];
   }
 }

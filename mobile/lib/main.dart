@@ -37,8 +37,8 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
   }
 
   Future<void> _initializeServices() async {
-    // Initialize notifications with action handler
-    await ref.read(notificationServiceProvider).initializeWithActions(_handleNotificationAction);
+    // Initialize notifications (Good/Bad actions handled internally via SharedPreferences)
+    await ref.read(notificationServiceProvider).initialize();
     
     // Initialize proximity tracker for automatic notifications
     ref.read(proximityTrackingProvider);
@@ -46,12 +46,10 @@ class _PlaceTalkAppState extends ConsumerState<PlaceTalkApp> {
     print('✅ App services initialized (notifications + proximity tracking)');
   }
 
-  /// Handle notification action buttons (Good/Bad)
+  /// Handle notification action buttons (Good/Bad) — now handled inside NotificationService
+  // ignore: unused_element
   void _handleNotificationAction(String? action, String? pinId) {
     if (action == null || pinId == null) return;
-
-    print('🔔 Notification action: $action for pin $pinId');
-
     if (action == 'good') {
       ref.read(discoveryProvider.notifier).markPinAsGood(pinId);
     } else if (action == 'bad') {

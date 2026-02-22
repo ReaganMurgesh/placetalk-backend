@@ -22,9 +22,12 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   final _directionsController = TextEditingController();
   final _detailsController = TextEditingController();
   final _rulesController = TextEditingController();
+  final _externalLinkController = TextEditingController(); // spec 2.2
 
   final String _pinType = 'location';
   String _pinCategory = 'normal';
+  bool _chatEnabled = false; // spec 2.2: community pins only
+  bool _isPrivate = false;   // spec 2.3: Paid/restricted pin
   bool _isLoading = false;
   Position? _currentPosition;
   
@@ -58,6 +61,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
     _detailsController.dispose();
     _rulesController.dispose();
     _confettiController.dispose();
+    _externalLinkController.dispose();
     super.dispose();
   }
 
@@ -101,33 +105,34 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
 
   Future<void> _createPin() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
+    // Spec 2.1: Coordinates locked at screen open — do NOT fetch fresh GPS
+    if (_currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Still acquiring GPS — please wait a moment.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final locationService = ref.read(locationServiceProvider);
-      
-      // Get FRESH GPS coordinates (high accuracy) at the exact moment of pin creation
-      print('🎯 CreatePinScreen: Getting FRESH GPS coordinates for pin creation...');
-      final position = await locationService.getCurrentPosition();
-      print('✅ CreatePinScreen: Fresh coordinates - Lat: ${position.latitude}, Lon: ${position.longitude}');
-      
+      // Show fine-tune dialog with the LOCKED position (spec 2.1)
       setState(() => _isLoading = false);
-      
-      // Check if still mounted before using context
       if (!mounted) return;
-      
-      // --- Phase 1a: GPS Fine-Tune Map Dialog ---
-      // Let user tap to shift pin up to 5m from true GPS location
-      final confirmed = await _showGpsFineTuneDialog(position);
+
+      final confirmed = await _showGpsFineTuneDialog(_currentPosition!);
       if (confirmed != true) {
         setState(() => _isLoading = false);
         return;
       }
 
-      // Use fine-tuned position if set, otherwise raw GPS
-      final double finalLat = _fineTunedLatLng?.latitude ?? position.latitude;
-      final double finalLon = _fineTunedLatLng?.longitude ?? position.longitude;
+      // Use fine-tuned position if set, otherwise the locked GPS position (spec 2.1)
+      final double finalLat = _fineTunedLatLng?.latitude ?? _currentPosition!.latitude;
+      final double finalLon = _fineTunedLatLng?.longitude ?? _currentPosition!.longitude;
       
       setState(() => _isLoading = true);
       
@@ -147,10 +152,15 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
         title: _titleController.text.trim(),
         directions: _directionsController.text.trim(),
         details: finalDetails,
-        lat: finalLat,   // Fine-tuned or GPS coordinates
-        lon: finalLon,   // Fine-tuned or GPS coordinates
+        lat: finalLat,
+        lon: finalLon,
         type: _pinType,
         pinCategory: _pinCategory,
+        externalLink: _externalLinkController.text.trim().isEmpty
+            ? null
+            : _externalLinkController.text.trim(),
+        chatEnabled: _pinCategory == 'community' ? _chatEnabled : false,
+        isPrivate: _isPrivate,
       );
 
       // For community pins: auto-create/join the community chat room
@@ -198,7 +208,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                     Text(
                       _pinCategory == 'community' 
                           ? '🏛️ Community pin created! Others can discover this forever.'
-                          : '📍 Pin created! Others can discover this for 72 hours.',
+                          : '📍 Pin created! Others can discover this for 1 year.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey[600]),
                     ),
@@ -236,8 +246,17 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final msg = e.toString();
+        // 429: daily quota exceeded
+        final isQuota = msg.contains('429') || msg.toLowerCase().contains('daily limit') || msg.toLowerCase().contains('per day');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create pin: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(isQuota
+                ? '💫 Daily limit reached — you can drop up to 3 pins per day.'
+                : 'Failed to create pin: $e'),
+            backgroundColor: isQuota ? Colors.orange : Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     } finally {
@@ -469,7 +488,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _pinCategory = 'normal'),
+                      onTap: () => setState(() { _pinCategory = 'normal'; _isPrivate = false; }),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
@@ -496,7 +515,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _pinCategory = 'community'),
+                      onTap: () => setState(() { _pinCategory = 'community'; _isPrivate = false; }),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
@@ -520,8 +539,58 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 12),
+                  // spec 2.3: Paid/Restricted pin
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _pinCategory = 'paid';
+                        _isPrivate = true;
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: _pinCategory == 'paid' ? Colors.deepPurple.withOpacity(0.1) : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _pinCategory == 'paid' ? Colors.deepPurple : Colors.grey[300]!,
+                            width: _pinCategory == 'paid' ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.lock, color: _pinCategory == 'paid' ? Colors.deepPurple : Colors.grey, size: 28),
+                            const SizedBox(height: 4),
+                            Text('Paid 🔒', style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: _pinCategory == 'paid' ? Colors.deepPurple : Colors.grey,
+                            )),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
+              if (_pinCategory == 'paid') ...[  
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.deepPurple[200]!),
+                  ),
+                  child: const Row(children: [
+                    Icon(Icons.info_outline, size: 14, color: Colors.deepPurple),
+                    SizedBox(width: 6),
+                    Expanded(child: Text(
+                      'Paid/restricted pin — only visible to you and invited users. For closed events & B2B use.',
+                      style: TextStyle(fontSize: 12, color: Colors.deepPurple),
+                    )),
+                  ]),
+                ),
+              ],
 
               const SizedBox(height: 24),
 
@@ -529,16 +598,18 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               TextFormField(
                 controller: _titleController,
                 decoration: InputDecoration(
-                  labelText: 'Title * (10 chars max)',
+                  labelText: 'Title * (max 10 chars)',
                   hintText: 'e.g. Cafe, Sunset',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.title),
+                  counterText: '',
                 ),
-                maxLength: 15,
+                maxLength: 10,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter a title';
+                  if (value.trim().length > 10) return 'Title must be 10 characters or less';
                   return null;
                 },
               ),
@@ -549,17 +620,19 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               TextFormField(
                 controller: _directionsController,
                 decoration: InputDecoration(
-                  labelText: 'Hint / Directions * (80 chars)',
-                  hintText: 'Behind the blue building',
+                  labelText: 'Directions Hint * (50–100 chars)',
+                  hintText: 'Past the blue roof, second door on left',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.directions),
+                  helperText: 'Visible within 50 m. Must be 50–100 characters.',
                 ),
                 maxLines: 2,
-                maxLength: 80,
+                maxLength: 100,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter directions';
+                  if (value.trim().length < 50) return 'At least 50 characters required';
                   return null;
                 },
             ),
@@ -570,16 +643,68 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             TextFormField(
               controller: _detailsController,
               decoration: InputDecoration(
-                labelText: 'Details (Optional, max 400)',
+                labelText: 'Details (optional, 300–500 chars)',
                 hintText: 'Great coffee, quiet atmosphere...',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 prefixIcon: const Icon(Icons.description),
+                helperText: 'Unlocked within 20 m. Leave blank or write 300–500 chars.',
               ),
               maxLines: 3,
-              maxLength: 400,
+              maxLength: 500,
+              validator: (value) {
+                final v = value?.trim() ?? '';
+                if (v.isNotEmpty && v.length < 300) return 'Details should be 300+ characters (or leave blank)';
+                return null;
+              },
             ),
+
+            const SizedBox(height: 12),
+
+            // External Link
+            TextFormField(
+              controller: _externalLinkController,
+              decoration: InputDecoration(
+                labelText: 'External Link (optional URL)',
+                hintText: 'https://example.com',
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.link),
+                helperText: 'Shown as a button below the pin details.',
+              ),
+              keyboardType: TextInputType.url,
+              validator: (value) {
+                final v = value?.trim() ?? '';
+                if (v.isNotEmpty && !v.startsWith('http')) return 'Must start with http:// or https://';
+                return null;
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            // Chat ON/OFF (community pins only)
+            if (_pinCategory == 'community') ...[  
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(Icons.chat_bubble_outline, color: Color(0xFFFF9800)),
+                  title: const Text('Community Chat', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Enable Q&A comment section for this pin'),
+                  value: _chatEnabled,
+                  onChanged: (v) => setState(() => _chatEnabled = v),
+                  activeColor: const Color(0xFFFF9800),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             const SizedBox(height: 16),
 
@@ -743,7 +868,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               Text(
                 _pinCategory == 'community'
                     ? '🏛️ Community pin — permanent, links to a community chat room'
-                    : 'Pin visible to users within 50m for 72 hours',
+                    : 'Pin visible to users within 50m for 1 year',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 textAlign: TextAlign.center,
               ),

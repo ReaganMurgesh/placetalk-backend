@@ -15,8 +15,11 @@ import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/models/community.dart';
 import 'package:placetalk/services/geocoding_service.dart';
 import 'package:placetalk/screens/social/community_screen.dart';
+import 'package:placetalk/screens/social/diary_screen.dart';
 import 'package:placetalk/services/navigation_service.dart';
 import 'package:placetalk/providers/diary_provider.dart';
+import 'package:placetalk/services/socket_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// ==========================================================
 /// POKÉMON GO STYLE MAP
@@ -91,6 +94,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   final List<LatLng> _fogClearedPoints = [];
   LatLng? _lastFogUpdate;
   bool _fogEnabled = true;
+  Timer? _fogSaveTimer; // debounce for SharedPreferences writes
+
+  // --- 150m Hex Cloud: place name cache per hex cell key ---
+  final Map<String, String> _hexPlaceNames = {};
+
+  // --- 1.4: Creator alert socket ---
+  final SocketService _creatorAlertSocket = SocketService();
 
   @override
   void initState() {
@@ -116,6 +126,22 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     
     _initCompass();
     _initGps();
+    _loadFogFromPrefs(); // load persisted explored paths
+
+    // 1.4: Creator footprint alerts via Socket.io
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = ref.read(currentUserProvider).value;
+      if (user != null && mounted) {
+        _creatorAlertSocket.connect();
+        // Small delay so socket handshake completes before joining room
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            _creatorAlertSocket.listenForCreatorAlerts(
+                user.id, _onCreatorAlert);
+          }
+        });
+      }
+    });
 
     // Periodic heartbeat every 30s — ensures other users' pins load even when standing still
     _periodicHeartbeat = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -145,6 +171,16 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(discoveryProvider.notifier).loadNearbyPins();
     });
+
+    // spec 3.1 "View on Map": fly camera when community feed requests a focus
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.listen(mapFocusProvider, (_, next) {
+        if (next != null && mounted) {
+          _mapController.move(next, 17.0);
+          ref.read(mapFocusProvider.notifier).state = null; // clear after use
+        }
+      });
+    });
   }
 
   @override
@@ -152,10 +188,34 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     _compassSub?.cancel();
     _gpsSub?.cancel();
     _periodicHeartbeat?.cancel();
+    _fogSaveTimer?.cancel();
+    _creatorAlertSocket.stopCreatorAlerts();
+    _creatorAlertSocket.disconnect();
     _pulseCtrl.dispose();
     _bounceCtrl.dispose();
     _mapController.dispose();
     super.dispose();
+  }
+
+  // 1.4: Handle incoming creator_alert socket event
+  Future<void> _onCreatorAlert(Map<String, dynamic> data) async {
+    final pinTitle = (data['pinTitle'] ?? '') as String;
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lon = (data['lon'] as num?)?.toDouble();
+    String placeName = '';
+    if (lat != null && lon != null) {
+      try {
+        final addr = await GeocodingService.reverseGeocode(lat, lon);
+        if (addr != null) {
+          placeName = addr.city ?? addr.neighbourhood ?? addr.display;
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    ref.read(notificationServiceProvider).showCreatorAlert(
+      pinTitle: pinTitle,
+      placeName: placeName,
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -318,6 +378,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           _fogClearedPoints.add(newPos);
           _lastFogUpdate = newPos;
         });
+        _debouncedSaveFog();
       }
     }
   }
@@ -340,17 +401,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             : '📍 ${pins.length} pin${pins.length > 1 ? 's' : ''} nearby!';
       });
       
-      // Notify for each discovered pin
-      for (final pin in pins) {
-        final dir = _compassDir(
-          pos.latitude, pos.longitude, pin.lat, pin.lon,
-        );
-        try {
-          ref.read(notificationServiceProvider).showNotification(
-            title: '📍 ${pin.title}',
-            body: 'Go $dir! ${pin.distance?.toInt() ?? '?'}m away',
-          );
-        } catch (_) {}
+      // 1.4: First-encounter sequential notifications (pop-pop-pop)
+      if (pins.isNotEmpty) {
+        ref
+            .read(notificationServiceProvider)
+            .showFirstEncounterNotifications(pins)
+            .catchError((_) {});
       }
       
       print('💓 Heartbeat OK → ${pins.length} pins');
@@ -488,8 +544,13 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     return Scaffold(
       body: Stack(
         children: [
-          // ... Map ...
-          FlutterMap(
+          // ... Map (2.5D perspective tilt) ...
+          Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.0005)
+              ..rotateX(-0.18),
+            child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _userPosition ?? const LatLng(0.0, 0.0), // Don't use hardcoded Tokyo coordinates
@@ -516,7 +577,15 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 userAgentPackageName: 'com.placetalk.app',
                 maxZoom: 19,
               ),
-              
+
+              // Phase 1c: Fog of War — covers base tiles
+              if (_fogEnabled)
+                _buildFogLayer(),
+
+              // 150m Hex Cloud layer — floats above fog as treasure hints
+              if (_userPosition != null)
+                _buildHexCloudLayer(state),
+
               if (_navigationPath.isNotEmpty)
                 PolylineLayer(
                   polylines: [
@@ -529,15 +598,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     ),
                   ],
                 ),
-              
+
               // Pin markers on actual map coordinates
               if (_userPosition != null)
                 _buildPinMarkers(state),
-
-              // Phase 1c: Fog of War overlay
-              if (_fogEnabled)
-                _buildFogLayer(),
             ],
+            ),
           ),
           
           // ... Layer 2 (Avatar) ...
@@ -620,52 +686,63 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             ),
           ),
           
-          // ... Layer 3 (Top Bar) ...
+          // TOP STRIP: ≡ Menu | Status | Fog | 🔍 Search
           Positioned(
-            top: MediaQuery.of(context).padding.top + 12,
-            left: 16,
-            right: 16,
-            child: _buildTopBar(state),
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 12,
+            right: 12,
+            child: _buildTopStrip(state),
           ),
 
-          // STOP NAVIGATION BUTTON (New)
+          // Stop-navigation banner (below top strip)
           if (_isNavigating)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 70,
-              right: 16,
-              child: FloatingActionButton.extended(
-                onPressed: _stopNavigation,
-                backgroundColor: Colors.redAccent,
-                icon: const Icon(Icons.close, color: Colors.white),
-                label: const Text('Stop', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
+              top: MediaQuery.of(context).padding.top + 64,
+              left: 12,
+              right: 12,
+              child: _buildStopNavBanner(),
             ),
-          
-          // ... Layer 4 (Bottom Bar) ...
+
+          // RIGHT FABs: Rescan (upper) + Drop Pin (lower)
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: _buildBottomBar(context, state),
-          ),
-          
-          // ... Layer 5 (Zoom) ...
-          Positioned(
-            right: 16,
-            bottom: 130,
+            right: 14,
+            bottom: MediaQuery.of(context).padding.bottom + 90,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
+                _mapFab(Icons.my_location, const Color(0xFF6C63FF), () async {
+                  if (_userPosition != null) {
+                    _mapController.move(_userPosition!, _mapController.camera.zoom);
+                  }
+                  await ref.read(discoveryProvider.notifier).manualDiscovery();
+                }, tooltip: 'Rescan', isLoading: state.isDiscovering),
+                const SizedBox(height: 10),
+                _mapFab(Icons.add_location_alt, const Color(0xFFFF6B6B), () async {
+                  final created = await Navigator.pushNamed(context, '/create-pin');
+                  if (created == true) {
+                    ref.read(discoveryProvider.notifier).manualDiscovery();
+                  }
+                }, tooltip: 'Drop Pin'),
+                const SizedBox(height: 10),
                 _circleBtn(Icons.add, () {
                   final z = (_mapController.camera.zoom + 0.5).clamp(16.0, 19.0);
                   if (_userPosition != null) _mapController.move(_userPosition!, z);
                 }),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 _circleBtn(Icons.remove, () {
                   final z = (_mapController.camera.zoom - 0.5).clamp(16.0, 19.0);
                   if (_userPosition != null) _mapController.move(_userPosition!, z);
                 }),
               ],
             ),
+          ),
+
+          // BOTTOM HANDLE — swipe up to show pins within 50m
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _buildBottomHandle(state),
           ),
         ],
       ),
@@ -817,8 +894,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
           point: displayPoint,
           width: markerW,
           height: markerW + 20,
-          child: Opacity(
-            opacity: opacity,
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey('fade_${pin.id}_$isFullyUnlocked'),
+            tween: Tween(begin: 0.0, end: opacity),
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOut,
+            builder: (_, v, child) => Opacity(opacity: v, child: child!),
             child: GestureDetector(
               onTap: () {
                 if (isCluster) {
@@ -866,21 +947,23 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                             )]
                           : null,
                     ),
-                    child: Icon(
-                      isCluster
-                          ? Icons.layers
-                          : isHidden
-                              ? Icons.visibility_off
-                              : (!isFullyUnlocked
-                                  ? Icons.cloud // 🌫️ hex cloud for locked
-                                  : (pin.pinCategory == 'community'
-                                      ? Icons.groups
-                                      : (pin.type == 'sensation'
-                                          ? Icons.auto_awesome
-                                          : Icons.place))),
-                      color: Colors.white,
-                      size: isDeprioritized ? 14 : (isCluster ? 24 : 20),
-                    ),
+                    child: isCluster
+                        ? Icon(Icons.layers, color: Colors.white, size: isDeprioritized ? 14 : 24)
+                        : Center(
+                            child: Text(
+                              isHidden
+                                  ? '🙈'
+                                  : !isFullyUnlocked
+                                      ? '🔒'
+                                      : pin.pinCategory == 'community'
+                                          ? '🏮'
+                                          : pin.type == 'sensation'
+                                              ? '🌸'
+                                              : '📍',
+                              style: TextStyle(fontSize: isDeprioritized ? 10 : 16),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -972,165 +1055,524 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   }
 
   // ──────────────────────────────────────────────
-  // TOP BAR
+  // 150m Hex Cloud Layer
   // ──────────────────────────────────────────────
-  Widget _buildTopBar(DiscoveryState state) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12)],
-      ),
-      child: Row(
-        children: [
-          // Pin count
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+
+  static const double _hexR = 150.0; // meters — circumradius
+
+  static Offset _latLonToM(LatLng origin, LatLng point) {
+    const mpd = 111320.0;
+    final mpdLon = mpd * cos(origin.latitude * pi / 180);
+    return Offset(
+      (point.longitude - origin.longitude) * mpdLon,
+      (point.latitude  - origin.latitude)  * mpd,
+    );
+  }
+
+  static LatLng _mToLatLon(LatLng origin, Offset m) {
+    const mpd = 111320.0;
+    final mpdLon = mpd * cos(origin.latitude * pi / 180);
+    return LatLng(
+      origin.latitude  + m.dy / mpd,
+      origin.longitude + m.dx / mpdLon,
+    );
+  }
+
+  static (int, int) _hexAxial(Offset m) {
+    final fq = (2.0 / 3.0 * m.dx) / _hexR;
+    final fr = (-1.0 / 3.0 * m.dx + sqrt(3) / 3.0 * m.dy) / _hexR;
+    return _hexRound(fq, fr);
+  }
+
+  static (int, int) _hexRound(double fq, double fr) {
+    final fs = -fq - fr;
+    var rq = fq.round();
+    var rr = fr.round();
+    final rs = fs.round();
+    final dq = (rq - fq).abs();
+    final dr = (rr - fr).abs();
+    final ds = (rs - fs).abs();
+    if (dq > dr && dq > ds) {
+      rq = -rr - rs;
+    } else if (dr > ds) {
+      rr = -rq - rs;
+    }
+    return (rq, rr);
+  }
+
+  static Offset _hexCenterM(int q, int r) => Offset(
+    _hexR * (3.0 / 2.0 * q),
+    _hexR * (sqrt(3) / 2.0 * q + sqrt(3) * r),
+  );
+
+  static List<Offset> _hexCornersM(Offset center) => List.generate(
+    6,
+    (i) => Offset(
+      center.dx + _hexR * cos(pi / 3.0 * i),
+      center.dy + _hexR * sin(pi / 3.0 * i),
+    ),
+  );
+
+  Widget _buildHexCloudLayer(DiscoveryState state) {
+    if (_userPosition == null) return const SizedBox();
+    final origin = _userPosition!;
+    final currentUser = ref.read(currentUserProvider).value;
+    final polygons = <Polygon>[];
+    final labelMarkers = <Marker>[];
+    final Set<String> seenHexes = {};
+    final Set<String> allIds = {};
+    final allPins = <Pin>[];
+    for (final p in [...state.discoveredPins, ...state.createdPins]) {
+      if (allIds.add(p.id)) allPins.add(p);
+    }
+
+    for (final pin in allPins) {
+      final dist = Geolocator.distanceBetween(
+          origin.latitude, origin.longitude, pin.lat, pin.lon);
+      if (dist > 200.0) continue;
+      final isOwn = currentUser != null && pin.createdBy == currentUser.id;
+      if (isOwn || dist <= 20.0) continue;
+
+      final localM = _latLonToM(origin, LatLng(pin.lat, pin.lon));
+      final (q, r) = _hexAxial(localM);
+      final hexKey = '$q,$r';
+      if (!seenHexes.add(hexKey)) continue;
+
+      final centerM = _hexCenterM(q, r);
+      final corners = _hexCornersM(centerM)
+          .map((m) => _mToLatLon(origin, m))
+          .toList();
+      final centerLatLng = _mToLatLon(origin, centerM);
+
+      final cloudColor = pin.pinCategory == 'community'
+          ? const Color(0xFFFF9800)
+          : pin.type == 'sensation'
+              ? const Color(0xFF9C27B0)
+              : const Color(0xFF5C9BD6);
+
+      polygons.add(Polygon(
+        points: corners,
+        color: cloudColor.withOpacity(0.22),
+        borderColor: cloudColor.withOpacity(0.65),
+        borderStrokeWidth: 1.8,
+        isFilled: true,
+      ));
+
+      if (!_hexPlaceNames.containsKey(hexKey)) {
+        _hexPlaceNames[hexKey] = '';
+        GeocodingService.reverseGeocode(
+                centerLatLng.latitude, centerLatLng.longitude)
+            .then((addr) {
+          if (mounted && addr != null && addr.display.isNotEmpty) {
+            setState(() => _hexPlaceNames[hexKey] = addr.display);
+          }
+        });
+      }
+
+      final placeName = _hexPlaceNames[hexKey] ?? '';
+      if (placeName.isNotEmpty) {
+        labelMarkers.add(Marker(
+          point: centerLatLng,
+          width: 130,
+          height: 36,
+          child: Center(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.82),
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Text(
+                placeName,
+                style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w700,
+                    color: cloudColor,
+                    height: 1.2),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ));
+      }
+    }
+
+    if (polygons.isEmpty) return const SizedBox();
+    return Stack(children: [
+      PolygonLayer(polygons: polygons),
+      if (labelMarkers.isNotEmpty) MarkerLayer(markers: labelMarkers),
+    ]);
+  }
+
+  // ──────────────────────────────────────────────
+  // Fog of War persistence
+  // ──────────────────────────────────────────────
+
+  Future<void> _loadFogFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList('fog_points_v1');
+      if (raw != null && raw.isNotEmpty && mounted) {
+        final points = raw.map((s) {
+          final p = s.split(',');
+          return LatLng(double.parse(p[0]), double.parse(p[1]));
+        }).toList();
+        setState(() => _fogClearedPoints.addAll(points));
+      }
+    } catch (e) {
+      debugPrint('⚠️ Fog load failed: $e');
+    }
+  }
+
+  void _debouncedSaveFog() {
+    _fogSaveTimer?.cancel();
+    _fogSaveTimer = Timer(const Duration(seconds: 4), _saveFogToPrefs);
+  }
+
+  Future<void> _saveFogToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        'fog_points_v1',
+        _fogClearedPoints
+            .map((p) => '${p.latitude},${p.longitude}')
+            .toList(),
+      );
+    } catch (e) {
+      debugPrint('⚠️ Fog save failed: $e');
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // 1.3 FULL EXPLORATION UI — TOP STRIP
+  // ──────────────────────────────────────────────
+
+  Widget _buildTopStrip(DiscoveryState state) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // ≡ Menu
+        _topBtn(Icons.menu, () => _showMenuSheet()),
+        const SizedBox(width: 8),
+        // Status pill (expands)
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+              color: Colors.white.withOpacity(0.94),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
             ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.place, color: Color(0xFF4CAF50), size: 16),
-                const SizedBox(width: 4),
-                Text('${state.allPins.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Color(0xFF4CAF50)),
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _connectionOk ? const Color(0xFF4CAF50) : Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _statusText,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 12,
+                      color: _connectionOk ? Colors.grey[800] : Colors.orange[800],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: () => setState(() => _fogEnabled = !_fogEnabled),
+                  child: Icon(
+                    _fogEnabled ? Icons.cloud : Icons.wb_sunny,
+                    size: 17,
+                    color: _fogEnabled ? Colors.indigo[400] : Colors.grey[400],
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          // Status text
-          Expanded(
-            child: Text(
-              _statusText,
-              style: TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 13,
-                color: _connectionOk ? Colors.grey[700] : Colors.orange[700],
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          // Fog toggle
-          GestureDetector(
-            onTap: () => setState(() => _fogEnabled = !_fogEnabled),
-            child: Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: _fogEnabled
-                    ? Colors.indigo.withOpacity(0.12)
-                    : Colors.grey.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                _fogEnabled ? Icons.cloud : Icons.wb_sunny,
-                size: 16,
-                color: _fogEnabled ? Colors.indigo[700] : Colors.grey[500],
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Connection indicator
-          Container(
-            width: 10, height: 10,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _connectionOk ? const Color(0xFF4CAF50) : Colors.orange,
-            ),
-          ),
-        ],
+        ),
+        const SizedBox(width: 8),
+        // 🔍 Search
+        _topBtn(Icons.search, () => _showSearchSheet()),
+      ],
+    );
+  }
+
+  Widget _topBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42, height: 42,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          shape: BoxShape.circle,
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8)],
+        ),
+        child: Icon(icon, color: Colors.black87, size: 20),
       ),
     );
   }
 
-  // ──────────────────────────────────────────────
-  // BOTTOM BAR
-  // ──────────────────────────────────────────────
-  Widget _buildBottomBar(BuildContext context, DiscoveryState state) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Colors.black.withOpacity(0.7), Colors.black.withOpacity(0.9)],
+  Widget _buildStopNavBanner() {
+    return GestureDetector(
+      onTap: _stopNavigation,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.redAccent,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.4), blurRadius: 8)],
         ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _navBtn(Icons.format_list_bulleted, 'Pins', const Color(0xFF4CAF50), () => _showPinList()),
-              _createBtn(context),
-              _navBtn(
-                Icons.radar, 'Discover', const Color(0xFF6C63FF),
-                () => ref.read(discoveryProvider.notifier).manualDiscovery(),
-                isLoading: state.isDiscovering,
-              ),
-            ],
-          ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.close, color: Colors.white, size: 16),
+            SizedBox(width: 6),
+            Text('Navigating — tap to Stop',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          ],
         ),
       ),
     );
   }
 
-  Widget _navBtn(IconData icon, String label, Color color, VoidCallback onTap, {bool isLoading = false}) {
-    return GestureDetector(
-      onTap: isLoading ? null : onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              shape: BoxShape.circle,
-              border: Border.all(color: color.withOpacity(0.3), width: 2),
-            ),
-            child: isLoading
-                ? Padding(padding: const EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2, color: color))
-                : Icon(icon, color: color, size: 24),
+  Widget _mapFab(IconData icon, Color color, VoidCallback onTap,
+      {String? tooltip, bool isLoading = false}) {
+    return Tooltip(
+      message: tooltip ?? '',
+      child: GestureDetector(
+        onTap: isLoading ? null : onTap,
+        child: Container(
+          width: 50, height: 50,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [BoxShadow(color: color.withOpacity(0.38), blurRadius: 10, spreadRadius: 1)],
           ),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-        ],
+          child: isLoading
+              ? const Padding(
+                  padding: EdgeInsets.all(13),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Icon(icon, color: Colors.white, size: 22),
+        ),
       ),
     );
   }
 
-  Widget _createBtn(BuildContext context) {
+  // ──────────────────────────────────────────────
+  // 1.3 BOTTOM HANDLE — swipe up for 50m pin list
+  // ──────────────────────────────────────────────
+
+  Widget _buildBottomHandle(DiscoveryState state) {
+    int nearbyCount = 0;
+    if (_userPosition != null) {
+      for (final pin in state.allPins) {
+        final d = Geolocator.distanceBetween(
+            _userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon);
+        if (d <= 50.0) nearbyCount++;
+      }
+    }
     return GestureDetector(
-      onTap: () async {
-        final created = await Navigator.pushNamed(context, '/create-pin');
-        if (created == true) {
-          // Refresh — trigger discovery after creating a pin
-          ref.read(discoveryProvider.notifier).manualDiscovery();
-        }
+      onTap: _showPinList,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.97),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.14),
+                blurRadius: 12,
+                offset: const Offset(0, -3))
+          ],
+        ),
+        child: Row(
+          children: [
+            Center(
+              child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(width: 12),
+            const Icon(Icons.place, color: Color(0xFF4CAF50), size: 15),
+            const SizedBox(width: 4),
+            Text(
+              nearbyCount == 0
+                  ? 'No pins in range — keep walking!'
+                  : '$nearbyCount pin${nearbyCount > 1 ? 's' : ''} within 50m',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87),
+            ),
+            const Spacer(),
+            Icon(Icons.keyboard_arrow_up, color: Colors.grey[500], size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // 1.3 MENU SHEET
+  // ──────────────────────────────────────────────
+
+  void _showMenuSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 14, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                      color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+            ListTile(
+              leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFFF9800),
+                  child: Icon(Icons.groups, color: Colors.white)),
+              title: const Text('Communities',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('Chat in community spaces'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const CommunityListScreen()));
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(
+                  backgroundColor: Color(0xFF6C63FF),
+                  child: Icon(Icons.auto_stories, color: Colors.white)),
+              title:
+                  const Text('Diary', style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('Your explored history'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DiaryScreen()));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // 1.3 PLACE SEARCH SHEET (LocationIQ)
+  // ──────────────────────────────────────────────
+
+  void _showSearchSheet() {
+    final ctrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                    child: Container(
+                        width: 40, height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2)))),
+                const Text('Search a Place',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'e.g. Dogo Onsen, Shibuya…',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                  ),
+                  onSubmitted: (q) async {
+                    if (q.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    await _doPlaceSearch(q);
+                  },
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final q = ctrl.text;
+                      if (q.trim().isEmpty) return;
+                      Navigator.pop(ctx);
+                      await _doPlaceSearch(q);
+                    },
+                    icon: const Icon(Icons.search, color: Colors.white),
+                    label: const Text('Search',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C63FF),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
       },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64, height: 64,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)]),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [BoxShadow(color: const Color(0xFFFF6B6B).withOpacity(0.4), blurRadius: 12, spreadRadius: 2)],
-            ),
-            child: const Icon(Icons.add_location_alt, color: Colors.white, size: 30),
-          ),
-          const SizedBox(height: 4),
-          const Text('Create', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-        ],
-      ),
     );
   }
+
+  Future<void> _doPlaceSearch(String query) async {
+    if (!mounted) return;
+    setState(() => _statusText = '🔍 Searching "$query"…');
+    final result = await GeocodingService.forwardGeocode(query);
+    if (!mounted) return;
+    if (result != null) {
+      final target = LatLng(result['lat'] as double, result['lon'] as double);
+      _mapController.move(target, 17.0);
+      setState(() => _statusText = '📍 Moved to: $query');
+    } else {
+      setState(() => _statusText = '❌ Place not found: $query');
+    }
+  }
+
+  // (bottom bar removed — replaced by _buildBottomHandle, right FABs, and _buildTopStrip)
 
   // ──────────────────────────────────────────────
   // PIN DETAIL SHEET
@@ -1159,11 +1601,11 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
             const SizedBox(height: 16),
 
-            // ── Phase 1a: Locked banner (50–20m) ──
+            // ── 1.2: Locked banner (50–20m) ──
             if (!isFullyUnlocked)
               Container(
                 width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 12),
+                margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.amber[50],
@@ -1176,8 +1618,44 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Get within 20m to unlock full details!  (${dist.toInt()}m away)',
+                        'Get within 20m to unlock full details! (${dist.toInt()}m away)',
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── 1.2: Community preview shown even when locked ──
+            if (!isFullyUnlocked && pin.pinCategory == 'community')
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.groups, color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Community: ${pin.title}',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 13),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Walk within 20m to join the chat 💬',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.deepOrange),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -1399,10 +1877,208 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                 ),
               ),
             ],
+            // ── spec 2.4: Owner Edit / Delete controls ──────────────────
+            Builder(builder: (bCtx) {
+              final currentUser = ref.read(currentUserProvider).value;
+              if (currentUser == null || pin.createdBy != currentUser.id) {
+                return const SizedBox.shrink();
+              }
+              final bool withinRange = dist <= 50.0;
+              final bool canModify = withinRange || currentUser.isB2bPartner;
+              if (!canModify) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Move within 50 m to edit or delete this pin',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+              return Column(children: [
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _showEditPinSheet(pin);
+                      },
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        side: const BorderSide(color: Colors.blue),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _confirmDeletePin(ctx, pin),
+                      icon: const Icon(Icons.delete_outline, size: 16),
+                      label: const Text('Delete'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ]),
+              ]);
+            }),
           ],
         ),
       ),
     );
+  }
+
+  // ── spec 2.4: Edit pin bottom sheet ──────────────────────────────────
+  void _showEditPinSheet(Pin pin) {
+    final titleCtrl = TextEditingController(text: pin.title);
+    final dirCtrl = TextEditingController(text: pin.directions);
+    final detailsCtrl = TextEditingController(text: pin.details ?? '');
+    final linkCtrl = TextEditingController(text: pin.externalLink ?? '');
+    bool chatEnabled = pin.chatEnabled;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx2, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+              left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx2).viewInsets.bottom + 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Edit Pin', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: titleCtrl,
+                  maxLength: 10,
+                  decoration: const InputDecoration(labelText: 'Title (max 10 chars)', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dirCtrl,
+                  maxLength: 100,
+                  decoration: const InputDecoration(labelText: 'Directions (50–100 chars)', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: detailsCtrl,
+                  maxLength: 500,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Details (max 500 chars)', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: linkCtrl,
+                  decoration: const InputDecoration(labelText: 'External Link (optional)', border: OutlineInputBorder()),
+                ),
+                if (pin.pinCategory == 'community') ...[
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Enable Chat'),
+                    value: chatEnabled,
+                    onChanged: (v) => setSheetState(() => chatEnabled = v),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final title = titleCtrl.text.trim();
+                      final dirs = dirCtrl.text.trim();
+                      if (title.isEmpty || dirs.length < 50) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Title required; directions must be 50+ chars')),
+                        );
+                        return;
+                      }
+                      try {
+                        Navigator.pop(sheetCtx);
+                        await ref.read(apiClientProvider).updatePin(
+                          pin.id,
+                          title: title,
+                          directions: dirs,
+                          details: detailsCtrl.text.trim().isEmpty ? null : detailsCtrl.text.trim(),
+                          externalLink: linkCtrl.text.trim().isEmpty ? null : linkCtrl.text.trim(),
+                          chatEnabled: chatEnabled,
+                          userLat: _userPosition!.latitude,
+                          userLon: _userPosition!.longitude,
+                        );
+                        ref.invalidate(discoveryProvider);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Pin updated'), backgroundColor: Colors.green),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Update failed: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+                    child: const Text('Save Changes'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── spec 2.4: Confirm delete dialog ──────────────────────────────────
+  Future<void> _confirmDeletePin(BuildContext ctx, Pin pin) async {
+    final confirmed = await showDialog<bool>(
+      context: ctx,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('Delete Pin?'),
+        content: Text('Are you sure you want to delete "${pin.title}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dCtx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      Navigator.pop(ctx); // close pin sheet
+      await ref.read(apiClientProvider).deletePin(
+        pin.id,
+        userLat: _userPosition!.latitude,
+        userLon: _userPosition!.longitude,
+      );
+      ref.invalidate(discoveryProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pin deleted'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Widget _actionBtn({
@@ -1436,17 +2112,22 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // PIN LIST
   // ──────────────────────────────────────────────
   void _showPinList() {
-    // Combine discovered + created, deduplicated (same logic as map markers)
+    // Pins within 50m only, deduplicated and sorted by distance
     final state = ref.read(discoveryProvider);
     final Set<String> seen = {};
     final List<Pin> allPins = [];
     for (final pin in [...state.discoveredPins, ...state.createdPins]) {
       if (!seen.contains(pin.id)) {
         seen.add(pin.id);
-        allPins.add(pin);
+        if (_userPosition != null) {
+          final d = Geolocator.distanceBetween(
+              _userPosition!.latitude, _userPosition!.longitude, pin.lat, pin.lon);
+          if (d <= 50.0) allPins.add(pin);
+        } else {
+          allPins.add(pin);
+        }
       }
     }
-    // Sort by distance
     if (_userPosition != null) {
       allPins.sort((a, b) {
         final da = Geolocator.distanceBetween(_userPosition!.latitude, _userPosition!.longitude, a.lat, a.lon);

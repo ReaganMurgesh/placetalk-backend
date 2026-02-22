@@ -1,178 +1,218 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:placetalk/models/pin.dart';
+import 'package:placetalk/services/geocoding_service.dart';
 
-/// Notification service provider
+/// 1.4 Notification System
+/// - First-encounter only (SharedPreferences-backed)
+/// - Good → 7-day cooldown; Bad → permanent mute
+/// - Sequential “pop-pop-pop” at 0.8 s
+/// - Format: “[Title] @ [Place Name]” via LocationIQ
+/// - Creator footprint channel (no action buttons)
 final notificationServiceProvider = Provider((ref) => NotificationService());
 
 class NotificationService {
-  final FlutterLocalNotificationsPlugin _notifications =
-      FlutterLocalNotificationsPlugin();
+  static const _kProxCh = 'placetalk_proximity';
+  static const _kCreatorCh = 'placetalk_creator';
+  static const _cooldown = Duration(days: 7);
 
+  final _notif = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
-  Function(String?, String?)? _actionCallback;
 
-  /// Initialize notification service with action handler
-  Future<void> initializeWithActions(Function(String?, String?)? actionCallback) async {
-    _actionCallback = actionCallback;
-    await initialize();
-  }
+  // SharedPreferences key helpers
+  static String _seenKey(String id) => 'notif_seen_$id'; // ISO timestamp
+  static String _goodKey(String id) => 'notif_good_$id'; // ISO timestamp of Good press
+  static String _muteKey(String id) => 'notif_mute_$id'; // true = permanently muted
 
   Future<void> initialize() async {
     if (_initialized) return;
-
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
-
-    await _notifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTap,
+    await _notif.initialize(
+      const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher')),
+      onDidReceiveNotificationResponse: _onResponse,
     );
-
-    // Create notification channel
-    const channel = AndroidNotificationChannel(
-      'placetalk_proximity',
-      'Pin Proximity Alerts',
-      description: 'Notifications when you are near a pin',
-      importance: Importance.high,
-    );
-
-    await _notifications
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
+    await _ensureChannel(_kProxCh, 'Pin Discovery Alerts',
+        'Notifications when you first encounter a nearby pin', Importance.high);
+    await _ensureChannel(_kCreatorCh, 'Creator Footprints',
+        'Someone discovered one of your pins!', Importance.defaultImportance);
     _initialized = true;
-    print('✅ Notification service initialized');
+    debugPrint('✅ NotificationService initialized');
   }
 
-  /// Handle notification tap and actions
-  void _onNotificationTap(NotificationResponse response) {
-    print('Notification response: action=${response.actionId}, payload=${response.payload}');
-    
-    if (response.actionId != null && _actionCallback != null) {
-      // Handle action button (Good/Bad)
-      _actionCallback!(response.actionId, response.payload);
-    } else {      // Regular tap - navigate to pin detail
-      print('Notification tapped: ${response.payload}');
-      // TODO: Navigate to pin detail screen
+  Future<void> _ensureChannel(
+      String id, String name, String desc, Importance imp) async {
+    final ch = AndroidNotificationChannel(id, name,
+        description: desc, importance: imp);
+    await _notif
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(ch);
+  }
+
+  void _onResponse(NotificationResponse r) {
+    final pinId = r.payload;
+    if (pinId == null) return;
+    if (r.actionId == 'good') _handleGood(pinId);
+    if (r.actionId == 'bad') _handleBad(pinId);
+  }
+
+  // ── Eligibility ──────────────────────────────────────────
+
+  Future<bool> isEligible(String pinId) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Permanently muted → never
+    if (prefs.getBool(_muteKey(pinId)) == true) return false;
+    // Never seen before → eligible
+    final seenTs = prefs.getString(_seenKey(pinId));
+    if (seenTs == null) return true;
+    // "Good" was pressed AND cooldown has expired → eligible again
+    final goodTs = prefs.getString(_goodKey(pinId));
+    if (goodTs != null) {
+      final goodAt = DateTime.tryParse(goodTs);
+      if (goodAt != null && DateTime.now().difference(goodAt) >= _cooldown) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _recordSeen(String pinId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_seenKey(pinId), DateTime.now().toIso8601String());
+  }
+
+  Future<void> _handleGood(String pinId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_goodKey(pinId), DateTime.now().toIso8601String());
+    debugPrint('👍 Good → pin $pinId: 7-day cooldown set');
+  }
+
+  Future<void> _handleBad(String pinId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_muteKey(pinId), true);
+    debugPrint('🔇 Bad → pin $pinId: permanently muted');
+  }
+
+  /// Unmute a pin — called from pin detail sheet if user wants to re-enable
+  Future<void> unmute(String pinId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_muteKey(pinId));
+    await prefs.remove(_goodKey(pinId));
+    await prefs.remove(_seenKey(pinId));
+    debugPrint('🔓 Unmuted pin $pinId');
+  }
+
+  // ── Sequential First-Encounter Notifications ─────────────────────
+
+  /// Called from the map heartbeat.
+  /// Filters to first-encounter pins only, reverse-geocodes each,
+  /// and fires them sequentially with 0.8 s delay.
+  Future<void> showFirstEncounterNotifications(List<Pin> pins) async {
+    await initialize();
+    final eligible = <Pin>[];
+    for (final pin in pins) {
+      if (await isEligible(pin.id)) eligible.add(pin);
+    }
+    if (eligible.isEmpty) return;
+    debugPrint('🎰 Sequential notifs: ${eligible.length} first-encounter pin(s)');
+
+    const androidDetails = AndroidNotificationDetails(
+      _kProxCh,
+      'Pin Discovery Alerts',
+      channelDescription: 'Notifications when you first encounter a nearby pin',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction('good', 'Good 👍',
+            showsUserInterface: false, cancelNotification: true),
+        AndroidNotificationAction('bad', 'Bad 🔇',
+            showsUserInterface: false, cancelNotification: true),
+      ],
+    );
+
+    for (int i = 0; i < eligible.length; i++) {
+      final pin = eligible[i];
+      // "[Title] @ [Place Name]" format
+      String body = '';
+      try {
+        final addr =
+            await GeocodingService.reverseGeocode(pin.lat, pin.lon);
+        if (addr != null && addr.display.isNotEmpty) {
+          body = '@ ${addr.display}';
+        }
+      } catch (_) {}
+
+      await _notif.show(
+        pin.id.hashCode ^ i,
+        pin.title,
+        body,
+        const NotificationDetails(android: androidDetails),
+        payload: pin.id,
+      );
+      await _recordSeen(pin.id);
+      debugPrint('✅ ${i + 1}/${eligible.length}: ${pin.title} $body');
+
+      if (i < eligible.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
     }
   }
 
-  /// Show proximity alert for a pin
-  Future<void> showProximityAlert({
-    required String pinId,
+  // ── Creator Footprint Notification ─────────────────────────────
+
+  /// Shown when someone discovers the current user’s pin.
+  /// Fired via Socket.io creator_alert event.
+  Future<void> showCreatorAlert({
     required String pinTitle,
-    required double distanceMeters,
+    required String placeName,
   }) async {
     await initialize();
-
     const androidDetails = AndroidNotificationDetails(
-      'placetalk_proximity',
-      'Pin Proximity Alerts',
-      channelDescription: 'Notifications when you are near a pin',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      _kCreatorCh,
+      'Creator Footprints',
+      channelDescription: 'Someone discovered one of your pins!',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
-
-    const notificationDetails = NotificationDetails(android: androidDetails);
-
-    await _notifications.show(
-      pinId.hashCode, // Unique ID per pin
-      '📍 Pin Nearby!',
-      '$pinTitle is ${distanceMeters.toStringAsFixed(0)}m away',
-      notificationDetails,
-      payload: pinId,
+    final body = placeName.isNotEmpty
+        ? '"$pinTitle" was discovered in $placeName'
+        : '"$pinTitle" was just discovered nearby';
+    await _notif.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      '👣 A new explorer found your pin!',
+      body,
+      const NotificationDetails(android: androidDetails),
     );
-
-    print('📬 Proximity notification sent for: $pinTitle ($distanceMeters m)');
+    debugPrint('👣 Creator alert: $pinTitle in $placeName');
   }
 
-  /// Cancel notification for a pin
-  Future<void> cancelProximityAlert(String pinId) async {
-    await _notifications.cancel(pinId.hashCode);
-  }
+  // ── Legacy shim (backward-compat for scattered callers) ─────────────
 
-  /// Cancel all notifications
-  Future<void> cancelAll() async {
-    await _notifications.cancelAll();
-  }
-
-  /// Show discovery notification with title and compass direction
+  /// Kept so existing call-sites don’t break during migration.
   Future<void> showNotification({
     required String title,
     required String body,
   }) async {
     await initialize();
-
-    const androidDetails = AndroidNotificationDetails(
-      'placetalk_proximity',
-      'Pin Proximity Alerts',
-      channelDescription: 'Notifications when you discover a pin',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _kProxCh, 'Pin Discovery Alerts',
+        channelDescription: 'Notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
     );
-
-    const notificationDetails = NotificationDetails(android: androidDetails);
-
-    await _notifications.show(
+    await _notif.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
-      notificationDetails,
+      details,
     );
-
-    print('📬 Discovery notification: $title - $body');
   }
 
-  // ========== SERENDIPITY: Sequential Notifications ==========
-
-  /// Show pin notifications sequentially with 0.8s delay (jackpot effect)
-  Future<void> showSequentialPinNotifications(List<dynamic> pins) async {
-    await initialize();
-    
-    if (pins.isEmpty) return;
-
-    print('🎰 SERENDIPITY: ${pins.length} pins notification sequence starting...');
-
-    for (int i = 0; i < pins.length; i++) {
-      final pin = pins[i];
-      
-      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'pin_discovery',
-        'Pin Discovery',
-        channelDescription: 'Discover nearby pins',
-        importance: Importance.high,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-        actions: <AndroidNotificationAction>[
-          AndroidNotificationAction('good', 'Good 👍', showsUserInterface: false, cancelNotification: true),
-          AndroidNotificationAction('bad', 'Bad 🔇', showsUserInterface: false, cancelNotification: true),
-        ],
-      );
-
-      final pinId = pin['id'] ?? pin.id;
-      final title = pin['title'] ?? pin.title;
-      final directions = pin['directions'] ?? pin.directions;
-
-      await _notifications.show(
-        pinId.hashCode + i,
-        '📍 $title',
-        directions,
-        const NotificationDetails(android: androidDetails),
-        payload: pinId.toString(),
-      );
-
-      print('✅ ${i + 1}/${pins.length}: $title');
-
-      // 0.8s delay for jackpot effect
-      if (i < pins.length - 1) {
-        await Future.delayed(const Duration(milliseconds: 800));
-      }
-    }
-
-    print('🎉 Notification sequence complete!');
-  }
+  Future<void> cancelAll() async => _notif.cancelAll();
 }

@@ -1,5 +1,5 @@
 import { pool } from '../../config/database.js';
-import type { UserActivity, TimelineEntry, UserStats, Badge } from './diary.types.js';
+import type { UserActivity, TimelineEntry, UserStats, Badge, PassiveLogEntry, DiaryPinMetrics, DiarySearchResult } from './diary.types.js';
 
 export class DiaryService {
     /**
@@ -18,6 +18,24 @@ export class DiaryService {
                  activity_type AS "activityType", metadata, created_at AS "createdAt"`,
             [userId, pinId, activityType, JSON.stringify(metadata || {})]
         );
+
+        // ── spec 4.1: auto-increment pin engagement counters ─────────────────
+        if (activityType === 'ghost_pass') {
+            await pool.query(
+                `UPDATE pins SET pass_through_count = COALESCE(pass_through_count,0) + 1 WHERE id = $1`,
+                [pinId]
+            );
+        } else if (activityType === 'hidden') {
+            await pool.query(
+                `UPDATE pins SET hide_count = COALESCE(hide_count,0) + 1 WHERE id = $1`,
+                [pinId]
+            );
+        } else if (activityType === 'reported') {
+            await pool.query(
+                `UPDATE pins SET report_count = COALESCE(report_count,0) + 1 WHERE id = $1`,
+                [pinId]
+            );
+        }
 
         return result.rows[0];
     }
@@ -233,6 +251,123 @@ export class DiaryService {
             longestStreak: streaks.longest,
             badges,
         };
+    }
+
+    // ── spec 4.1 Tab 1: Passive Log (ghost + verified) ──────────────────────
+    async getPassiveLog(
+        userId: string,
+        sort: 'recent' | 'like_count' = 'recent',
+        limit = 100
+    ): Promise<PassiveLogEntry[]> {
+        const orderBy = sort === 'like_count'
+            ? 'p.like_count DESC, ua.created_at DESC'
+            : 'ua.created_at DESC';
+
+        const res = await pool.query(
+            `SELECT
+               ua.id        AS "activityId",
+               ua.pin_id    AS "pinId",
+               COALESCE(p.title, '[Deleted Pin]') AS "pinTitle",
+               COALESCE(ST_Y(p.location::geometry), 0) AS "pinLat",
+               COALESCE(ST_X(p.location::geometry), 0) AS "pinLon",
+               COALESCE(p.like_count, 0) AS "pinLikeCount",
+               COALESCE(p.type, 'location') AS "pinType",
+               COALESCE(ua.verified, FALSE)  AS "isVerified",
+               ua.verified_at               AS "verifiedAt",
+               ua.created_at                AS "passedAt",
+               ua.activity_type             AS "activityType"
+             FROM user_activities ua
+             LEFT JOIN pins p ON ua.pin_id = p.id
+             WHERE ua.user_id = $1
+               AND ua.activity_type IN ('ghost_pass', 'visited', 'discovered', 'liked')
+             ORDER BY ${orderBy}
+             LIMIT $2`,
+            [userId, limit]
+        );
+        return res.rows;
+    }
+
+    // ── spec 4.1 Tab 1: Upgrade ghost_pass → Verified ─────────────────────────
+    async verifyGhostPin(userId: string, pinId: string): Promise<void> {
+        // Mark all ghost_pass activities for this pin as verified
+        await pool.query(
+            `UPDATE user_activities
+               SET verified = TRUE, verified_at = NOW(), activity_type = 'liked'
+             WHERE user_id = $1 AND pin_id = $2 AND activity_type = 'ghost_pass'`,
+            [userId, pinId]
+        );
+        // Also like the pin (idempotent upsert into interactions)
+        await pool.query(
+            `INSERT INTO interactions (user_id, pin_id, interaction_type)
+             VALUES ($1, $2, 'like')
+             ON CONFLICT (user_id, pin_id) DO UPDATE SET interaction_type = 'like'`,
+            [userId, pinId]
+        );
+        // Recalculate like_count
+        await pool.query(
+            `UPDATE pins SET like_count = (
+               SELECT COUNT(*) FROM interactions WHERE pin_id = $1 AND interaction_type = 'like'
+             ) WHERE id = $1`,
+            [pinId]
+        );
+    }
+
+    // ── spec 4.1 Tab 2: My Pins with full metrics ─────────────────────────────
+    async getMyPinsWithMetrics(userId: string): Promise<DiaryPinMetrics[]> {
+        const res = await pool.query(
+            `SELECT
+               p.id,
+               p.title,
+               p.directions,
+               COALESCE(ST_Y(p.location::geometry), 0) AS lat,
+               COALESCE(ST_X(p.location::geometry), 0) AS lon,
+               p.type                                   AS "pinType",
+               p.pin_category                           AS "pinCategory",
+               COALESCE(p.like_count, 0)                AS "likeCount",
+               COALESCE(p.dislike_count, 0)             AS "dislikeCount",
+               COALESCE(p.pass_through_count, 0)        AS "passThrough",
+               COALESCE(p.hide_count, 0)                AS "hideCount",
+               COALESCE(p.report_count, 0)              AS "reportCount",
+               p.created_at                             AS "createdAt"
+             FROM pins p
+             WHERE p.created_by = $1
+               AND p.is_deleted = FALSE
+             ORDER BY p.created_at DESC`,
+            [userId]
+        );
+        return res.rows;
+    }
+
+    // ── spec 4.2: Full-text search across all user activity pins ─────────────
+    async searchDiary(userId: string, query: string, limit = 50): Promise<DiarySearchResult[]> {
+        if (!query.trim()) return [];
+        const res = await pool.query(
+            `SELECT
+               ua.id          AS "activityId",
+               p.id           AS "pinId",
+               p.title        AS "pinTitle",
+               COALESCE(p.type, 'location')         AS "pinType",
+               COALESCE(p.pin_category, 'normal')   AS "pinCategory",
+               COALESCE(p.directions, '')           AS "pinDirections",
+               COALESCE(ST_Y(p.location::geometry), 0) AS "pinLat",
+               COALESCE(ST_X(p.location::geometry), 0) AS "pinLon",
+               ua.activity_type    AS "activityType",
+               COALESCE(ua.verified, FALSE) AS "isVerified",
+               ua.created_at       AS "lastActivity"
+             FROM user_activities ua
+             JOIN pins p ON ua.pin_id = p.id
+             WHERE ua.user_id = $1
+               AND p.is_deleted = FALSE
+               AND to_tsvector('simple',
+                     p.title || ' ' ||
+                     COALESCE(p.directions,'') || ' ' ||
+                     COALESCE(p.details,''))
+                   @@ plainto_tsquery('simple', $2)
+             ORDER BY ua.created_at DESC
+             LIMIT $3`,
+            [userId, query.trim(), limit]
+        );
+        return res.rows;
     }
 }
 

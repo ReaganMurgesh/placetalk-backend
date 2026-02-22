@@ -140,3 +140,152 @@ class Badge {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// spec 4.1 Tab 1 — Passive Log entry (ghost_pass / verified)
+// ---------------------------------------------------------------------------
+class PassiveLogEntry {
+  final String activityId;
+  final String pinId;
+  final String pinTitle;
+  final String pinType;
+  final String activityType;
+  final double pinLat;
+  final double pinLon;
+  final int pinLikeCount;
+  final bool isVerified;
+  final DateTime? verifiedAt;
+  final DateTime passedAt;
+
+  PassiveLogEntry({
+    required this.activityId,
+    required this.pinId,
+    required this.pinTitle,
+    required this.pinType,
+    required this.activityType,
+    required this.pinLat,
+    required this.pinLon,
+    required this.pinLikeCount,
+    required this.isVerified,
+    this.verifiedAt,
+    required this.passedAt,
+  });
+
+  factory PassiveLogEntry.fromJson(Map<String, dynamic> json) {
+    return PassiveLogEntry(
+      activityId: json['activityId'] as String,
+      pinId: json['pinId'] as String,
+      pinTitle: json['pinTitle'] as String? ?? '[Deleted Pin]',
+      pinType: json['pinType'] as String? ?? 'normal',
+      activityType: json['activityType'] as String? ?? 'ghost_pass',
+      pinLat: (json['pinLat'] ?? 0).toDouble(),
+      pinLon: (json['pinLon'] ?? 0).toDouble(),
+      pinLikeCount: json['pinLikeCount'] as int? ?? 0,
+      isVerified: json['isVerified'] as bool? ?? false,
+      verifiedAt: json['verifiedAt'] != null
+          ? DateTime.parse(json['verifiedAt'] as String)
+          : null,
+      passedAt: DateTime.parse(json['passedAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// spec 4.1 Tab 2 — My Pins with engagement metrics
+// ---------------------------------------------------------------------------
+class DiaryPinMetrics {
+  final String id;
+  final String title;
+  final String? directions;
+  final double lat;
+  final double lon;
+  final String pinType;
+  final String? pinCategory;
+  final int likeCount;
+  final int dislikeCount;
+  final int passThrough;
+  final int hideCount;
+  final int reportCount;
+  final DateTime createdAt;
+
+  DiaryPinMetrics({
+    required this.id,
+    required this.title,
+    this.directions,
+    required this.lat,
+    required this.lon,
+    required this.pinType,
+    this.pinCategory,
+    required this.likeCount,
+    required this.dislikeCount,
+    required this.passThrough,
+    required this.hideCount,
+    required this.reportCount,
+    required this.createdAt,
+  });
+
+  factory DiaryPinMetrics.fromJson(Map<String, dynamic> json) {
+    return DiaryPinMetrics(
+      id: json['id'] as String,
+      title: json['title'] as String? ?? '',
+      directions: json['directions'] as String?,
+      lat: (json['lat'] ?? 0).toDouble(),
+      lon: (json['lon'] ?? 0).toDouble(),
+      pinType: json['pinType'] as String? ?? 'normal',
+      pinCategory: json['pinCategory'] as String?,
+      likeCount: json['likeCount'] as int? ?? 0,
+      dislikeCount: json['dislikeCount'] as int? ?? 0,
+      passThrough: (json['passThrough'] ?? json['pass_through_count']) as int? ?? 0,
+      hideCount: (json['hideCount'] ?? json['hide_count']) as int? ?? 0,
+      reportCount: (json['reportCount'] ?? json['report_count']) as int? ?? 0,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// spec 4.2 — Full-text search result
+// ---------------------------------------------------------------------------
+class DiarySearchResult {
+  final String activityId;
+  final String pinId;
+  final String pinTitle;
+  final String pinType;
+  final String pinCategory;
+  final String pinDirections;
+  final double pinLat;
+  final double pinLon;
+  final String activityType;
+  final bool isVerified;
+  final DateTime lastActivity;
+
+  DiarySearchResult({
+    required this.activityId,
+    required this.pinId,
+    required this.pinTitle,
+    required this.pinType,
+    required this.pinCategory,
+    required this.pinDirections,
+    required this.pinLat,
+    required this.pinLon,
+    required this.activityType,
+    required this.isVerified,
+    required this.lastActivity,
+  });
+
+  factory DiarySearchResult.fromJson(Map<String, dynamic> json) {
+    return DiarySearchResult(
+      activityId: json['activityId'] as String,
+      pinId: json['pinId'] as String,
+      pinTitle: json['pinTitle'] as String? ?? '[Deleted Pin]',
+      pinType: json['pinType'] as String? ?? 'normal',
+      pinCategory: json['pinCategory'] as String? ?? '',
+      pinDirections: json['pinDirections'] as String? ?? '',
+      pinLat: (json['pinLat'] ?? 0).toDouble(),
+      pinLon: (json['pinLon'] ?? 0).toDouble(),
+      activityType: json['activityType'] as String? ?? 'ghost_pass',
+      isVerified: json['isVerified'] as bool? ?? false,
+      lastActivity: DateTime.parse(json['lastActivity'] as String),
+    );
+  }
+}

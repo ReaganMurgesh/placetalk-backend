@@ -240,6 +240,10 @@ const start = async () => {
         const port = parseInt(process.env.PORT || '3000');
         await fastify.listen({ port, host: '0.0.0.0' });
 
+        // Attach Socket.io to the underlying HTTP server
+        const { initSocketIO } = await import('./config/socket.js');
+        initSocketIO(fastify.server as any);
+
         console.log(`
     🚀 PlaceTalk Backend Server Running!
     

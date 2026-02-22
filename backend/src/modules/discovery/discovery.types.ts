@@ -21,6 +21,8 @@ export interface DiscoveredPin {
     createdAt: string;
     isHidden: boolean;
     isDeprioritized: boolean;
+    /** Creator display snapshot (nickname + bio) */
+    creatorSnapshot: { nickname?: string; bio?: string };
 }
 
 export interface DiscoveryResponse {

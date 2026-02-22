@@ -16,6 +16,16 @@ class Pin {
   final double? distance;
   final bool? isHidden;
   final bool? isDeprioritized;
+  final String? externalLink;  // spec 2.2
+  final bool chatEnabled;       // spec 2.2 (community pins only)
+  final bool isPrivate;         // spec 2.3: Paid/restricted visibility
+  final String? communityId;    // spec 3: linked community
+  // spec 4.1: engagement metrics for My Pins tab
+  final int passThrough;
+  final int hideCount;
+  final int reportCount;
+  // spec 5: creator snapshot stored at creation time
+  final Map<String, dynamic>? creatorSnapshot;
 
   Pin({
     required this.id,
@@ -35,6 +45,14 @@ class Pin {
     this.distance,
     this.isHidden,
     this.isDeprioritized,
+    this.externalLink,
+    this.chatEnabled = false,
+    this.isPrivate = false,
+    this.communityId,
+    this.passThrough = 0,
+    this.hideCount = 0,
+    this.reportCount = 0,
+    this.creatorSnapshot,
   });
 
   static double _parseDouble(dynamic value) {
@@ -65,6 +83,14 @@ class Pin {
       distance: json['distance'] != null ? _parseDouble(json['distance']) : null,
       isHidden: json['isHidden'] as bool?,
       isDeprioritized: json['isDeprioritized'] as bool?,
+      externalLink: json['externalLink'] as String?,
+      chatEnabled: (json['chatEnabled'] as bool?) ?? false,
+      isPrivate: (json['isPrivate'] as bool?) ?? false,
+      communityId: json['communityId'] as String?,
+      passThrough: (json['passThrough'] ?? json['pass_through_count']) as int? ?? 0,
+      hideCount: (json['hideCount'] ?? json['hide_count']) as int? ?? 0,
+      reportCount: (json['reportCount'] ?? json['report_count']) as int? ?? 0,
+      creatorSnapshot: json['creatorSnapshot'] as Map<String, dynamic>?,
     );
   }
 
@@ -90,6 +116,14 @@ class Pin {
     double? distance,
     bool? isHidden,
     bool? isDeprioritized,
+    String? externalLink,
+    bool? chatEnabled,
+    bool? isPrivate,
+    String? communityId,
+    int? passThrough,
+    int? hideCount,
+    int? reportCount,
+    Map<String, dynamic>? creatorSnapshot,
   }) {
     return Pin(
       id: id ?? this.id,
@@ -109,6 +143,14 @@ class Pin {
       distance: distance ?? this.distance,
       isHidden: isHidden ?? this.isHidden,
       isDeprioritized: isDeprioritized ?? this.isDeprioritized,
+      externalLink: externalLink ?? this.externalLink,
+      chatEnabled: chatEnabled ?? this.chatEnabled,
+      isPrivate: isPrivate ?? this.isPrivate,
+      communityId: communityId ?? this.communityId,
+      passThrough: passThrough ?? this.passThrough,
+      hideCount: hideCount ?? this.hideCount,
+      reportCount: reportCount ?? this.reportCount,
+      creatorSnapshot: creatorSnapshot ?? this.creatorSnapshot,
     );
   }
   

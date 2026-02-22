@@ -26,9 +26,19 @@ export class DiscoveryService {
             // Direct PostgreSQL query with PostGIS
             const discoveredPins = await this.queryNearbyPinsPostGIS(lat, lon, userId);
 
-            // Log discoveries for analytics
+            // Log discoveries; emit creator alert on first encounter
             for (const pin of discoveredPins) {
-                await this.logDiscovery(userId, pin.id, pin.distance);
+                const isNew = await this.logDiscovery(userId, pin.id, pin.distance);
+                if (isNew && pin.createdBy && pin.createdBy !== userId) {
+                    try {
+                        const { emitToRoom } = await import('../../config/socket.js');
+                        emitToRoom(`user_${pin.createdBy}`, 'creator_alert', {
+                            pinTitle: pin.title,
+                            lat: pin.lat,
+                            lon: pin.lon,
+                        });
+                    } catch (_) {}
+                }
             }
 
             console.log(`✅ Discovery complete: Found ${discoveredPins.length} pins for user ${userId}\n`);
@@ -70,6 +80,7 @@ export class DiscoveryService {
         p.pin_category,
         p.attribute_id,
         p.created_by,
+        p.creator_snapshot,
         p.like_count AS "likeCount",
         p.dislike_count AS "reportCount",
         ST_Y(p.location::geometry) AS lat,
@@ -98,6 +109,7 @@ export class DiscoveryService {
           $4
         )
         AND COALESCE(upi.is_muted, FALSE) = FALSE
+        AND (p.is_private = FALSE OR p.created_by = $5)  -- spec 2.3: hide private pins from others
       ORDER BY distance ASC
       `,
                 [userLon, userLat, currentTime, DISCOVERY_RADIUS_METERS, userId]
@@ -133,6 +145,7 @@ export class DiscoveryService {
                     createdAt: new Date().toISOString(),
                     isHidden: false,
                     isDeprioritized: isDeprioritized,
+                    creatorSnapshot: row.creator_snapshot ?? {},
                 };
             });
         } catch (error) {
@@ -150,7 +163,7 @@ export class DiscoveryService {
         userId: string,
         pinId: string,
         distance: number
-    ): Promise<void> {
+    ): Promise<boolean> {
         try {
             // 1. Log to discoveries (Unique per user+pin)
             const result = await pool.query(
@@ -161,12 +174,15 @@ export class DiscoveryService {
             );
 
             // Only log to discoveries table for analytics (NOT to user_activities)
-            // 'visited' is only logged when user navigates via Let's Explore AND arrives
+            // 'visited' is only logged when user navigates via Let’s Explore AND arrives
             if ((result.rowCount || 0) > 0) {
                 console.log(`  ✨ New proximity logged: Pin ${pinId} for user ${userId} at ${Math.round(distance)}m`);
+                return true; // genuinely new discovery this session
             }
+            return false;
         } catch (error) {
             console.error('Failed to log discovery:', error);
+            return false;
         }
     }
 }

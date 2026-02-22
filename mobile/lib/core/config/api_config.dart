@@ -14,6 +14,7 @@ class ApiConfig {
   static const String authRegister = '/auth/register';
   static const String authLogin = '/auth/login';
   static const String authMe = '/auth/me';
+  static const String authProfile = '/auth/profile';
   
   // Discovery
   static const String discoveryHeartbeat = '/discovery/heartbeat';
