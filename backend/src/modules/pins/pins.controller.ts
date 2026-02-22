@@ -25,11 +25,11 @@ export async function pinsRoutes(fastify: FastifyInstance) {
                 if (title.length > 10) {
                     return reply.code(400).send({ error: 'Title must be 10 characters or less' });
                 }
-                if (directions.length < 50 || directions.length > 100) {
-                    return reply.code(400).send({ error: 'Directions must be 50–100 characters' });
+                if (directions.length < 5 || directions.length > 300) {
+                    return reply.code(400).send({ error: 'Directions must be 5\u2013300 characters' });
                 }
-                if (details && details.trim().length > 0 && (details.length < 300 || details.length > 500)) {
-                    return reply.code(400).send({ error: 'Details must be 300–500 characters' });
+                if (details && details.trim().length > 0 && details.length > 500) {
+                    return reply.code(400).send({ error: 'Details must be 500 characters or less' });
                 }
 
                 if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {

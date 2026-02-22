@@ -226,16 +226,14 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   }
 
   // ──────────────────────────────────────────────
-  // COMPASS: Rotate the map with phone heading
+  // COMPASS: Only rotate the direction arrow dot
+  // (map stays north-up, like Google Maps)
   // ──────────────────────────────────────────────
   void _initCompass() {
     _compassSub = FlutterCompass.events?.listen((event) {
       if (event.heading != null && mounted) {
         setState(() { _heading = event.heading!; });
-        // Rotate map so it faces where you face
-        try {
-          _mapController.rotate(-_heading);
-        } catch (_) {}
+        // Do NOT rotate the map — only the avatar arrow rotates (see _buildUserDot)
       }
     });
   }
@@ -568,7 +566,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
               initialZoom: _userPosition != null ? 18.0 : 2.0, // Zoom out if no GPS location
               minZoom: _userPosition != null ? 16.0 : 2.0,
               maxZoom: 19.0,
-              initialRotation: -_heading,
+              initialRotation: 0,  // Map stays north-up; only the dot rotates
               onPositionChanged: (pos, hasGesture) {
                 // After a manual gesture, if follow mode is ON, gently snap back to the user
                 // position after a short delay. When follow mode is OFF (Diary/search focus),
@@ -646,11 +644,12 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Transform.rotate(
-                        angle: 0,
+                        // Rotate the navigation arrow to match phone compass heading
+                        angle: _heading * (pi / 180),
                         child: const Icon(
                           Icons.navigation,
                           color: Color(0xFF6C63FF),
-                          size: 16,
+                          size: 20,
                         ),
                       ),
                       const SizedBox(height: 2),

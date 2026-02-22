@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:confetti/confetti.dart';
+import 'package:dio/dio.dart';
 import 'package:placetalk/services/location_service.dart';
 import 'package:placetalk/services/geocoding_service.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
@@ -246,14 +247,23 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final msg = e.toString();
-        // 429: daily quota exceeded
+        String msg;
+        if (e is DioException) {
+          final data = e.response?.data;
+          if (data is Map) {
+            msg = data['error']?.toString() ?? data['message']?.toString() ?? 'Server error ${e.response?.statusCode}';
+          } else {
+            msg = 'Network error (${e.type.name})';
+          }
+        } else {
+          msg = e.toString();
+        }
         final isQuota = msg.contains('429') || msg.toLowerCase().contains('daily limit') || msg.toLowerCase().contains('per day');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(isQuota
-                ? '💫 Daily limit reached — you can drop up to 3 pins per day.'
-                : 'Failed to create pin: $e'),
+                ? '💫 Daily limit reached \u2014 you can drop up to 3 pins per day.'
+                : 'Pin creation failed: $msg'),
             backgroundColor: isQuota ? Colors.orange : Colors.red,
             duration: const Duration(seconds: 5),
           ),
@@ -620,19 +630,19 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               TextFormField(
                 controller: _directionsController,
                 decoration: InputDecoration(
-                  labelText: 'Directions Hint * (50–100 chars)',
-                  hintText: 'Past the blue roof, second door on left',
+                  labelText: 'Directions Hint * (how to find this place)',
+                  hintText: 'Past the blue roof, second door on left...',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.directions),
-                  helperText: 'Visible within 50 m. Must be 50–100 characters.',
+                  helperText: 'Visible within 50 m. Describe how to find this spot (5–300 chars).',
                 ),
                 maxLines: 2,
-                maxLength: 100,
+                maxLength: 300,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter directions';
-                  if (value.trim().length < 50) return 'At least 50 characters required';
+                  if (value.trim().length < 5) return 'Too short — describe how to find this place';
                   return null;
                 },
             ),
@@ -643,19 +653,19 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             TextFormField(
               controller: _detailsController,
               decoration: InputDecoration(
-                labelText: 'Details (optional, 300–500 chars)',
+                labelText: 'Details (optional)',
                 hintText: 'Great coffee, quiet atmosphere...',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 prefixIcon: const Icon(Icons.description),
-                helperText: 'Unlocked within 20 m. Leave blank or write 300–500 chars.',
+                helperText: 'Unlocked within 20 m. Up to 500 characters.',
               ),
               maxLines: 3,
               maxLength: 500,
               validator: (value) {
                 final v = value?.trim() ?? '';
-                if (v.isNotEmpty && v.length < 300) return 'Details should be 300+ characters (or leave blank)';
+                if (v.length > 500) return 'Details must be 500 characters or less';
                 return null;
               },
             ),
