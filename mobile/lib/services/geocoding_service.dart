@@ -145,4 +145,57 @@ class GeocodingService {
 
   /// Clear the in-memory cache (useful after key change)
   static void clearCache() => _cache.clear();
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Nominatim autocomplete — free, no API key, 1 req/s rate limit
+  // Returns up to 6 suggestions matching the query.
+  // ──────────────────────────────────────────────────────────────────────────
+  static final _nominatim = Dio(BaseOptions(
+    baseUrl: 'https://nominatim.openstreetmap.org',
+    connectTimeout: const Duration(seconds: 6),
+    receiveTimeout: const Duration(seconds: 6),
+    headers: {'User-Agent': 'PlaceTalk/1.0 (placetalk mobile app)'},
+  ));
+
+  static Future<List<Map<String, dynamic>>> searchSuggestions(String query) async {
+    if (query.trim().length < 2) return [];
+    try {
+      final resp = await _nominatim.get('/search', queryParameters: {
+        'q': query.trim(),
+        'format': 'json',
+        'limit': 6,
+        'addressdetails': 1,
+      });
+      final data = resp.data as List;
+      return data.map((item) {
+        final m = item as Map<String, dynamic>;
+        final address = (m['address'] as Map<String, dynamic>?) ?? {};
+        final name = (m['name'] ?? '').toString();
+        final displayName = (m['display_name'] ?? '').toString();
+        // Build concise title: prefer name, fall back to first part of display_name
+        final title = name.isNotEmpty ? name : displayName.split(',').first.trim();
+        // Subtitle: city + country (skip parts already in title)
+        final city = (address['city'] ??
+            address['town'] ??
+            address['municipality'] ??
+            address['county'] ??
+            '').toString();
+        final country = (address['country'] ?? '').toString();
+        final subtitle = [city, country]
+            .where((s) => s.isNotEmpty && s != title)
+            .join(', ');
+        final typeRaw = (m['type'] ?? m['class'] ?? '').toString();
+        return <String, dynamic>{
+          'title': title,
+          'subtitle': subtitle,
+          'display': displayName,
+          'lat': double.tryParse(m['lat']?.toString() ?? '') ?? 0.0,
+          'lon': double.tryParse(m['lon']?.toString() ?? '') ?? 0.0,
+          'type': typeRaw,
+        };
+      }).where((m) => (m['lat'] as double) != 0.0).toList();
+    } catch (e) {
+      return [];
+    }
+  }
 }

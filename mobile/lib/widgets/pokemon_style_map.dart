@@ -104,6 +104,9 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // --- 1.4: Creator alert socket ---
   final SocketService _creatorAlertSocket = SocketService();
 
+  // --- Place search overlay ---
+  bool _searchMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -760,6 +763,25 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
             right: 0,
             child: _buildBottomHandle(state),
           ),
+
+          // PLACE SEARCH OVERLAY — Google Maps-style inline autocomplete
+          if (_searchMode)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 12,
+              right: 12,
+              child: _MapSearchField(
+                onSelect: (lat, lon, label) {
+                  setState(() {
+                    _searchMode = false;
+                    _followUser = false;
+                  });
+                  _mapController.move(LatLng(lat, lon), 16.0);
+                  setState(() => _statusText = '📍 $label');
+                },
+                onClose: () => setState(() => _searchMode = false),
+              ),
+            ),
         ],
       ),
     );
@@ -1317,7 +1339,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         ),
         const SizedBox(width: 8),
         // 🔍 Search
-        _topBtn(Icons.search, () => _showSearchSheet()),
+        _topBtn(Icons.search, () => setState(() => _searchMode = true)),
       ],
     );
   }
@@ -2424,6 +2446,258 @@ class _InteractiveActionBtnState extends State<_InteractiveActionBtn>
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// _MapSearchField — Google Maps-style place search
+// Type → debounce 380ms → Nominatim autocomplete suggestions
+// ─────────────────────────────────────────────────
+class _MapSearchField extends StatefulWidget {
+  final void Function(double lat, double lon, String label) onSelect;
+  final VoidCallback onClose;
+  const _MapSearchField({required this.onSelect, required this.onClose});
+
+  @override
+  State<_MapSearchField> createState() => _MapSearchFieldState();
+}
+
+class _MapSearchFieldState extends State<_MapSearchField> {
+  final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _focus = FocusNode();
+  List<Map<String, dynamic>> _suggestions = [];
+  bool _loading = false;
+  Timer? _debounce;
+
+  // Icon per Nominatim type/class
+  IconData _iconFor(String type) {
+    switch (type) {
+      case 'train_station':
+      case 'station':
+      case 'subway_entrance':
+        return Icons.train_rounded;
+      case 'airport':
+        return Icons.flight_rounded;
+      case 'hotel':
+      case 'hostel':
+        return Icons.hotel_rounded;
+      case 'restaurant':
+      case 'cafe':
+      case 'food_court':
+        return Icons.restaurant_rounded;
+      case 'park':
+      case 'garden':
+      case 'forest':
+        return Icons.park_rounded;
+      case 'hospital':
+      case 'clinic':
+        return Icons.local_hospital_rounded;
+      case 'school':
+      case 'university':
+      case 'college':
+        return Icons.school_rounded;
+      default:
+        return Icons.place_rounded;
+    }
+  }
+
+  void _onChanged(String val) {
+    _debounce?.cancel();
+    if (val.trim().length < 2) {
+      setState(() { _suggestions = []; _loading = false; });
+      return;
+    }
+    setState(() => _loading = true);
+    _debounce = Timer(const Duration(milliseconds: 380), () async {
+      final results = await GeocodingService.searchSuggestions(val);
+      if (mounted) setState(() { _suggestions = results; _loading = false; });
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-focus after frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ── Search bar row ─────────────────────────────────────────
+        Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 4))],
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 14),
+              GestureDetector(
+                onTap: widget.onClose,
+                child: const Icon(Icons.arrow_back_rounded, color: Colors.black54, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  onChanged: _onChanged,
+                  textInputAction: TextInputAction.search,
+                  style: const TextStyle(fontSize: 15, color: Colors.black87),
+                  decoration: const InputDecoration(
+                    hintText: 'Search places — Asakusa, Tokyo…',
+                    hintStyle: TextStyle(fontSize: 14, color: Colors.black38),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onSubmitted: (val) async {
+                    if (val.trim().isEmpty) return;
+                    // Submit picks the first suggestion if available
+                    if (_suggestions.isNotEmpty) {
+                      final s = _suggestions.first;
+                      widget.onSelect(s['lat'] as double, s['lon'] as double,
+                          s['title'] as String);
+                    }
+                  },
+                ),
+              ),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(right: 14),
+                  child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6C63FF))),
+                )
+              else if (_ctrl.text.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    _ctrl.clear();
+                    setState(() => _suggestions = []);
+                    _focus.requestFocus();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.only(right: 14),
+                    child: Icon(Icons.close_rounded, color: Colors.black45, size: 20),
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        // ── Suggestions dropdown ───────────────────────────────────
+        if (_suggestions.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.14), blurRadius: 12, offset: const Offset(0, 4))],
+            ),
+            child: Column(
+              children: _suggestions.asMap().entries.map((entry) {
+                final i = entry.key;
+                final s = entry.value;
+                final isLast = i == _suggestions.length - 1;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => widget.onSelect(
+                      s['lat'] as double, s['lon'] as double, s['title'] as String),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF6C63FF).withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(_iconFor(s['type'] as String),
+                                  color: const Color(0xFF6C63FF), size: 18),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    s['title'] as String,
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if ((s['subtitle'] as String).isNotEmpty)
+                                    Text(
+                                      s['subtitle'] as String,
+                                      style: const TextStyle(
+                                          fontSize: 12, color: Colors.black45),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.north_west_rounded,
+                                color: Colors.black26, size: 14),
+                          ],
+                        ),
+                      ),
+                      if (!isLast)
+                        Divider(
+                            height: 1,
+                            indent: 64,
+                            endIndent: 16,
+                            color: Colors.grey[100]),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+
+        // ── Empty state ────────────────────────────────────────────
+        if (!_loading && _ctrl.text.trim().length >= 2 && _suggestions.isEmpty) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
+            ),
+            child: Center(
+              child: Text(
+                'No places found for "${_ctrl.text}"',
+                style: const TextStyle(fontSize: 13, color: Colors.black45),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
