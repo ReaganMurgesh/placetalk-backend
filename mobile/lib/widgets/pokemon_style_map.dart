@@ -77,13 +77,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   List<LatLng> _navigationPath = [];
   Pin? _navTargetPin;
   bool _isNavigating = false;
-  bool _isFetchingRoute = false;
-  bool _arrivalHandled = false; // Guard: prevent double-logging on arrival
-
-  // Periodic heartbeat timer (fires every 30s when standing still)
-  Timer? _periodicHeartbeat;
-
-  // --- Phase 1a: Two-stage detection & Ghost Pins ---
+  bool _arrivalHandled = false; Two-stage detection & Ghost Pins ---
   final Set<String> _autoPoppedPins = {};
   final Set<String> _nearbyButNotOpened = {};
   final Set<String> _ghostRecorded = {};
@@ -459,7 +453,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     if (_userPosition == null) return;
     
     setState(() {
-      _isFetchingRoute = true;
       _navTargetPin = pin;
     });
     
@@ -481,7 +474,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       setState(() {
         _navigationPath = route;
         _isNavigating = true;
-        _isFetchingRoute = false;
         _arrivalHandled = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -895,7 +887,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
         if (isDeprioritized) color = Colors.blueGrey;
 
         final double opacity = isHidden ? 0.3 : (isDeprioritized ? 0.5 : 1.0);
-        final double iconSize = isDeprioritized ? 30.0 : (isCluster ? 44.0 : 38.0);
         final double markerW = isDeprioritized ? 40.0 : (isCluster ? 70.0 : (isFullyUnlocked ? 60.0 : 52.0));
 
         // Badge label
@@ -1406,22 +1397,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
     );
   }
 
-  // ──────────────────────────────────────────────
-  // Extract a readable message from any exception (DioException or otherwise)
-  String _apiError(Object e) {
-    if (e is DioException) {
-      final data = e.response?.data;
-      if (data is Map) {
-        return data['error']?.toString() ??
-               data['message']?.toString() ??
-               'Server error ${e.response?.statusCode}';
-      }
-      if (data != null) return data.toString();
-      return 'Network error (${e.type.name})';
-    }
-    return e.toString();
-  }
-
   // 1.3 BOTTOM HANDLE — swipe up for 50m pin list
   // ──────────────────────────────────────────────
 
@@ -1530,102 +1505,6 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       ),
     );
   }
-
-  // ──────────────────────────────────────────────
-  // 1.3 PLACE SEARCH SHEET (LocationIQ)
-  // ──────────────────────────────────────────────
-
-  void _showSearchSheet() {
-    final ctrl = TextEditingController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Center(
-                    child: Container(
-                        width: 40, height: 4,
-                        margin: const EdgeInsets.only(bottom: 14),
-                        decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(2)))),
-                const Text('Search a Place',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Dogo Onsen, Shibuya…',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                  ),
-                  onSubmitted: (q) async {
-                    if (q.trim().isEmpty) return;
-                    Navigator.pop(ctx);
-                    await _doPlaceSearch(q);
-                  },
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final q = ctrl.text;
-                      if (q.trim().isEmpty) return;
-                      Navigator.pop(ctx);
-                      await _doPlaceSearch(q);
-                    },
-                    icon: const Icon(Icons.search, color: Colors.white),
-                    label: const Text('Search',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6C63FF),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _doPlaceSearch(String query) async {
-    if (!mounted) return;
-    setState(() => _statusText = '🔍 Searching "$query"…');
-    final result = await GeocodingService.forwardGeocode(query);
-    if (!mounted) return;
-    if (result != null) {
-      final target = LatLng(result['lat'] as double, result['lon'] as double);
-      _mapController.move(target, 17.0);
-      setState(() => _statusText = '📍 Moved to: $query');
-    } else {
-      setState(() => _statusText = '❌ Place not found: $query');
-    }
-  }
-
-  // (bottom bar removed — replaced by _buildBottomHandle, right FABs, and _buildTopStrip)
 
   // ──────────────────────────────────────────────
   // PIN DETAIL SHEET
