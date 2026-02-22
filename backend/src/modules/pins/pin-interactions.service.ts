@@ -13,11 +13,11 @@ export class PinInteractionsService {
         nextNotifyAt.setDate(nextNotifyAt.getDate() + 7); // 7 days from now
 
         const result = await pool.query(
-            `INSERT INTO user_pin_interactions (user_id, pin_id, last_seen_at, next_notify_at, is_muted)
+            `INSERT INTO user_pin_interactions (user_id, pin_id, last_interaction_at, next_notify_at, is_muted)
        VALUES ($1, $2, NOW(), $3, FALSE)
        ON CONFLICT (user_id, pin_id) 
        DO UPDATE SET 
-         last_seen_at = NOW(),
+         last_interaction_at = NOW(),
          next_notify_at = $3,
          is_muted = FALSE,
          updated_at = NOW()
@@ -33,7 +33,7 @@ export class PinInteractionsService {
      */
     async markPinAsBad(userId: string, pinId: string): Promise<UserPinInteraction> {
         const result = await pool.query(
-            `INSERT INTO user_pin_interactions (user_id, pin_id, last_seen_at, is_muted)
+            `INSERT INTO user_pin_interactions (user_id, pin_id, last_interaction_at, is_muted)
        VALUES ($1, $2, NOW(), TRUE)
        ON CONFLICT (user_id, pin_id) 
        DO UPDATE SET 
@@ -112,7 +112,7 @@ export class PinInteractionsService {
         return {
             userId: row.user_id,
             pinId: row.pin_id,
-            lastSeenAt: row.last_seen_at,
+            lastSeenAt: row.last_interaction_at,   // column is last_interaction_at in DB
             nextNotifyAt: row.next_notify_at,
             isMuted: row.is_muted,
             createdAt: row.created_at,

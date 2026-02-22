@@ -29,8 +29,10 @@ class ApiClient {
         return handler.next(options);
       },
       onError: (error, handler) {
-        print('❌ API Error: ${error.type} - ${error.message}');
-        print('   URL: ${error.requestOptions.uri}');
+        final status = error.response?.statusCode ?? 'no status';
+        final body   = error.response?.data ?? error.message;
+        print('❌ API Error [$status]: ${error.requestOptions.uri}');
+        print('   Body: $body');
         return handler.next(error);
       },
     ));

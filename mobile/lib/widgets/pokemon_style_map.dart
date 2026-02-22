@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:dio/dio.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:placetalk/providers/discovery_provider.dart';
@@ -1385,6 +1386,21 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   }
 
   // ──────────────────────────────────────────────
+  // Extract a readable message from any exception (DioException or otherwise)
+  String _apiError(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map) {
+        return data['error']?.toString() ??
+               data['message']?.toString() ??
+               'Server error ${e.response?.statusCode}';
+      }
+      if (data != null) return data.toString();
+      return 'Network error (${e.type.name})';
+    }
+    return e.toString();
+  }
+
   // 1.3 BOTTOM HANDLE — swipe up for 50m pin list
   // ──────────────────────────────────────────────
 
@@ -1771,7 +1787,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to like: ${e.toString()}'), backgroundColor: Colors.red),
+                          SnackBar(content: Text('Like failed: ${_apiError(e)}'), backgroundColor: Colors.red),
                         );
                       }
                     }
@@ -1798,7 +1814,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to hide: ${e.toString()}'), backgroundColor: Colors.red),
+                          SnackBar(content: Text('Hide failed: ${_apiError(e)}'), backgroundColor: Colors.red),
                         );
                       }
                     }
@@ -1824,7 +1840,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to report: ${e.toString()}'), backgroundColor: Colors.red),
+                          SnackBar(content: Text('Report failed: ${_apiError(e)}'), backgroundColor: Colors.red),
                         );
                       }
                     }
