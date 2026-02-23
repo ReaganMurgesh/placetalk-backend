@@ -49,7 +49,7 @@ fastify.get('/health', async () => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
-        version: '3.0-automigrate'
+        version: '3.1-constraint-fix'
     };
 });
 
