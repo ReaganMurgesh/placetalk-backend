@@ -88,4 +88,97 @@ export async function setupRoutes(fastify: FastifyInstance) {
             });
         }
     });
+
+    /**
+     * Force-fix DB check constraints for the pins table.
+     * Drops the old strict constraints and recreates them with relaxed rules.
+     * Also directly truncates any existing pins that violate the old constraint.
+     * Call this once via:  POST /setup/fix-constraints
+     */
+    fastify.post('/setup/fix-constraints', async (request, reply) => {
+        const steps: Array<{ step: string; status: string; detail?: string }> = [];
+
+        // ── Step 1: check current constraints ────────────────────────────────
+        try {
+            const existing = await pool.query(`
+                SELECT conname, pg_get_constraintdef(oid) AS def
+                FROM pg_constraint
+                WHERE conrelid = 'pins'::regclass
+                  AND conname IN ('pins_details_length', 'pins_directions_length')
+            `);
+            steps.push({ step: 'read_existing_constraints', status: 'ok', detail: JSON.stringify(existing.rows) });
+        } catch (err: any) {
+            steps.push({ step: 'read_existing_constraints', status: 'error', detail: err.message });
+        }
+
+        // ── Step 2: drop details constraint ──────────────────────────────────
+        try {
+            await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_details_length`);
+            steps.push({ step: 'drop_details_constraint', status: 'ok' });
+        } catch (err: any) {
+            steps.push({ step: 'drop_details_constraint', status: 'error', detail: err.message });
+        }
+
+        // ── Step 3: add relaxed details constraint ────────────────────────────
+        try {
+            await pool.query(`
+                ALTER TABLE pins ADD CONSTRAINT pins_details_length
+                    CHECK (details IS NULL OR char_length(details) = 0 OR char_length(details) <= 2000)
+                    NOT VALID
+            `);
+            steps.push({ step: 'add_relaxed_details_constraint', status: 'ok' });
+        } catch (err: any) {
+            steps.push({ step: 'add_relaxed_details_constraint', status: 'error', detail: err.message });
+        }
+
+        // ── Step 4: drop directions constraint ───────────────────────────────
+        try {
+            await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_directions_length`);
+            steps.push({ step: 'drop_directions_constraint', status: 'ok' });
+        } catch (err: any) {
+            steps.push({ step: 'drop_directions_constraint', status: 'error', detail: err.message });
+        }
+
+        // ── Step 5: add relaxed directions constraint ─────────────────────────
+        try {
+            await pool.query(`
+                ALTER TABLE pins ADD CONSTRAINT pins_directions_length
+                    CHECK (char_length(directions) BETWEEN 5 AND 500)
+                    NOT VALID
+            `);
+            steps.push({ step: 'add_relaxed_directions_constraint', status: 'ok' });
+        } catch (err: any) {
+            steps.push({ step: 'add_relaxed_directions_constraint', status: 'error', detail: err.message });
+        }
+
+        // ── Step 6: truncate details of any pin whose details exceed 2000 chars
+        //    (belt-and-suspenders: satisfies old or new constraint)             
+        try {
+            const truncated = await pool.query(`
+                UPDATE pins
+                SET details = LEFT(details, 2000), updated_at = NOW()
+                WHERE char_length(details) > 2000
+                RETURNING id, title, char_length(details) AS new_len
+            `);
+            steps.push({ step: 'truncate_oversized_details', status: 'ok', detail: `${truncated.rowCount} rows updated` });
+        } catch (err: any) {
+            steps.push({ step: 'truncate_oversized_details', status: 'error', detail: err.message });
+        }
+
+        // ── Step 7: verify what constraints look like now ─────────────────────
+        try {
+            const after = await pool.query(`
+                SELECT conname, pg_get_constraintdef(oid) AS def
+                FROM pg_constraint
+                WHERE conrelid = 'pins'::regclass
+                  AND conname IN ('pins_details_length', 'pins_directions_length')
+            `);
+            steps.push({ step: 'verify_constraints_after', status: 'ok', detail: JSON.stringify(after.rows) });
+        } catch (err: any) {
+            steps.push({ step: 'verify_constraints_after', status: 'error', detail: err.message });
+        }
+
+        const anyError = steps.some(s => s.status === 'error');
+        return reply.code(anyError ? 207 : 200).send({ success: !anyError, steps });
+    });
 }

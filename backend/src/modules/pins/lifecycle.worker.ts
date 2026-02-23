@@ -34,9 +34,10 @@ export async function repairDetailsConstraint(): Promise<void> {
                 CHECK (char_length(directions) BETWEEN 5 AND 500)
                 NOT VALID
         `);
-    } catch (err) {
-        // Log but never crash — constraints are not fatal
-        console.warn('⚠️  repairDetailsConstraint warning:', err);
+    } catch (err: any) {
+        // Log explicitly — if this keeps firing, check DB user permissions
+        console.error('🚨 repairDetailsConstraint FAILED (constraints may still be strict):', err?.message ?? err);
+        console.error('   Full error:', JSON.stringify({ code: err?.code, detail: err?.detail, hint: err?.hint }));
     }
 }
 
