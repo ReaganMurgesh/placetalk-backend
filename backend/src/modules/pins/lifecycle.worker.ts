@@ -16,6 +16,7 @@ const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
  */
 export async function repairDetailsConstraint(): Promise<void> {
     try {
+        // Fix details constraint (old rule: 300–500 chars → new: any length up to 2000)
         await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_details_length`);
         await pool.query(`
             ALTER TABLE pins ADD CONSTRAINT pins_details_length
@@ -25,8 +26,16 @@ export async function repairDetailsConstraint(): Promise<void> {
                     OR char_length(details) <= 2000
                 ) NOT VALID
         `);
+
+        // Fix directions constraint (old rule: 50–100 chars → new: 5–500)
+        await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_directions_length`);
+        await pool.query(`
+            ALTER TABLE pins ADD CONSTRAINT pins_directions_length
+                CHECK (char_length(directions) BETWEEN 5 AND 500)
+                NOT VALID
+        `);
     } catch (err) {
-        // Log but never crash — a missing/wrong constraint is not fatal for startup
+        // Log but never crash — constraints are not fatal
         console.warn('⚠️  repairDetailsConstraint warning:', err);
     }
 }

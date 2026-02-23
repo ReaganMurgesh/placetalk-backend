@@ -48,12 +48,13 @@ ALTER TABLE pins
   ADD CONSTRAINT pins_title_length
   CHECK (char_length(title) <= 10);
 
--- Directions: 50–100 characters
--- Use NOT VALID so existing rows that may not conform don't block migration;
--- newly inserted / updated rows will be validated.
+-- Directions: 5–500 characters (relaxed from old 50–100 so normal-length
+-- descriptions entered on mobile work without surprising failures)
+ALTER TABLE pins
+  DROP CONSTRAINT IF EXISTS pins_directions_length;
 ALTER TABLE pins
   ADD CONSTRAINT pins_directions_length
-  CHECK (char_length(directions) BETWEEN 50 AND 100)
+  CHECK (char_length(directions) BETWEEN 5 AND 500)
   NOT VALID;
 
 -- Details: optional, but if provided must be 300–500 chars

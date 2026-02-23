@@ -25,8 +25,8 @@ export async function pinsRoutes(fastify: FastifyInstance) {
                 if (title.length > 10) {
                     return reply.code(400).send({ error: 'Title must be 10 characters or less' });
                 }
-                if (directions.length < 5 || directions.length > 300) {
-                    return reply.code(400).send({ error: 'Directions must be 5\u2013300 characters' });
+                if (directions.length < 5 || directions.length > 500) {
+                    return reply.code(400).send({ error: 'Directions must be 5\u2013500 characters' });
                 }
                 if (details && details.trim().length > 0 && details.length > 2000) {
                     return reply.code(400).send({ error: 'Details must be 2000 characters or less' });

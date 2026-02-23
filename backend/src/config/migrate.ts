@@ -225,14 +225,16 @@ export async function runMigrations() {
             EXCEPTION WHEN duplicate_object THEN NULL;
             END $$
         `);
+        await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_directions_length`);
         await pool.query(`
             DO $$ BEGIN
                 ALTER TABLE pins ADD CONSTRAINT pins_directions_length
-                    CHECK (char_length(directions) BETWEEN 50 AND 100)
+                    CHECK (char_length(directions) BETWEEN 5 AND 500)
                     NOT VALID;
             EXCEPTION WHEN duplicate_object THEN NULL;
             END $$
         `);
+
         // Always drop the old details constraint then recreate it with the
         // relaxed rule. Two separate queries so there is no ambiguity about
         // which exception handler fires — critical for Render cold-start safety.

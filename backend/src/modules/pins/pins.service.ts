@@ -22,8 +22,8 @@ function validatePinText(data: {
         if (data.title.length > 10) return 'Title must be 10 characters or fewer';
     }
     if (data.directions !== undefined) {
-        if (data.directions.length < 50) return 'Directions must be at least 50 characters';
-        if (data.directions.length > 100) return 'Directions must be 100 characters or fewer';
+        if (data.directions.trim().length < 5) return 'Directions must be at least 5 characters';
+        if (data.directions.length > 500) return 'Directions must be 500 characters or fewer';
     }
     if (data.details !== undefined && data.details !== null && data.details.trim().length > 0) {
         // Relaxed rule: allow any non-empty details up to 2000 chars.

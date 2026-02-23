@@ -636,10 +636,10 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.directions),
-                  helperText: 'Visible within 50 m. Describe how to find this spot (5–300 chars).',
+                  helperText: 'Visible within 50 m. Describe how to find this spot (5–500 chars).',
                 ),
-                maxLines: 2,
-                maxLength: 300,
+                maxLines: 3,
+                maxLength: 500,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) return 'Please enter directions';
                   if (value.trim().length < 5) return 'Too short — describe how to find this place';
