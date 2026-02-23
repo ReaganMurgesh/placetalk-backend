@@ -62,6 +62,6 @@ ALTER TABLE pins
   CHECK (
     details IS NULL
     OR char_length(details) = 0
-    OR char_length(details) BETWEEN 300 AND 500
+    OR char_length(details) <= 2000
   )
   NOT VALID;

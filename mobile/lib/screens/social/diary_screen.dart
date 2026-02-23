@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:placetalk/models/diary.dart';
 import 'package:placetalk/providers/diary_provider.dart';
 import 'package:placetalk/providers/auth_provider.dart';
 import 'package:placetalk/providers/discovery_provider.dart';
@@ -77,7 +78,7 @@ class DiaryScreen extends ConsumerWidget {
                   child: Stack(
                     children: [
                       // Sakura petals decoration (top right)
-                      Positioned(
+                      const Positioned(
                         top: 40,
                         right: 20,
                         child: Opacity(
@@ -93,7 +94,7 @@ class DiaryScreen extends ConsumerWidget {
                         ),
                       ),
                       // Sakura petals decoration (bottom left)
-                      Positioned(
+                      const Positioned(
                         bottom: 60,
                         left: -20,
                         child: Opacity(
@@ -489,12 +490,12 @@ class _ExploredTab extends ConsumerWidget {
           ),
         );
       },
-      loading: () => Center(
+      loading: () => const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('🌸', style: TextStyle(fontSize: 40)),
-            const SizedBox(height: 16),
+            Text('🌸', style: TextStyle(fontSize: 40)),
+            SizedBox(height: 16),
             CircularProgressIndicator(color: _DiaryColors.sakuraPink),
           ],
         ),
@@ -838,12 +839,12 @@ class _JapaneseMyPinsTab extends ConsumerWidget {
           ),
         );
       },
-      loading: () => Center(
+      loading: () => const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('🌸', style: TextStyle(fontSize: 40)),
-            const SizedBox(height: 16),
+            Text('🌸', style: TextStyle(fontSize: 40)),
+            SizedBox(height: 16),
             CircularProgressIndicator(color: _DiaryColors.akeIro),
           ],
         ),

@@ -7,6 +7,11 @@ class ApiClient {
   late final Dio _dio;
   String? _authToken;
 
+  /// Called automatically whenever any API request returns HTTP 401.
+  /// Wire this up to AuthNotifier.logout() so the whole app logs out
+  /// and shows the login screen — not just a red "failed" SnackBar.
+  void Function()? onUnauthorized;
+
   ApiClient() {
     _dio = Dio(BaseOptions(
       baseUrl: ApiConfig.baseUrl,
@@ -33,6 +38,14 @@ class ApiClient {
         final body   = error.response?.data ?? error.message;
         print('❌ API Error [$status]: ${error.requestOptions.uri}');
         print('   Body: $body');
+        // Global 401 handler: clear token + trigger app-wide logout.
+        // This fires for EVERY endpoint (like, hide, report, heartbeat…)
+        // so the user is immediately redirected to login instead of
+        // seeing confusing "failed" SnackBars.
+        if (error.response?.statusCode == 401) {
+          _authToken = null;
+          onUnauthorized?.call();
+        }
         return handler.next(error);
       },
     ));

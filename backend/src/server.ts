@@ -11,7 +11,7 @@ import { discoveryRoutes } from './modules/discovery/discovery.controller.js';
 import { pinsRoutes } from './modules/pins/pins.controller.js';
 import { interactionsRoutes } from './modules/pins/interactions.controller.js';
 import { debugRoutes } from './routes/debug.routes.js';
-import { startLifecycleWorker } from './modules/pins/lifecycle.worker.js';
+import { startLifecycleWorker, repairDetailsConstraint } from './modules/pins/lifecycle.worker.js';
 
 const fastify = Fastify({
     logger: {
@@ -233,7 +233,9 @@ const start = async () => {
         // Connect to Redis (disabled - not available on Render free tier)
         // await connectRedis();
 
-        // Start lifecycle worker (checks every 60 seconds)
+        // Fix any strict DB constraints left over from earlier deploys,
+        // then start the lifecycle worker.
+        await repairDetailsConstraint();
         startLifecycleWorker();
 
         // Start server

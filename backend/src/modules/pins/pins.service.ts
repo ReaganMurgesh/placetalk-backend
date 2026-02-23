@@ -26,8 +26,10 @@ function validatePinText(data: {
         if (data.directions.length > 100) return 'Directions must be 100 characters or fewer';
     }
     if (data.details !== undefined && data.details !== null && data.details.trim().length > 0) {
-        if (data.details.length < 300) return 'Details must be at least 300 characters';
-        if (data.details.length > 500) return 'Details must be 500 characters or fewer';
+        // Relaxed rule: allow any non-empty details up to 2000 chars.
+        // This avoids lifecycle failures for slightly longer legacy pins
+        // while still preventing unbounded text spam.
+        if (data.details.length > 2000) return 'Details must be 2000 characters or fewer';
     }
     return null;
 }

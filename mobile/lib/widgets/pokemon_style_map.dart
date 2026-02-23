@@ -786,13 +786,17 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
   // ─────────────────────────────────────────────
   double _hashAngle(String id) {
     int h = 0;
-    for (int i = 0; i < id.length; i++) h = (h * 31 + id.codeUnitAt(i)) & 0xFFFFFF;
+    for (int i = 0; i < id.length; i++) {
+      h = (h * 31 + id.codeUnitAt(i)) & 0xFFFFFF;
+    }
     return (h % 360) * pi / 180;
   }
 
   double _hashMeters(String id) {
     int h = 0;
-    for (int i = 0; i < id.length; i++) h = (h * 17 + id.codeUnitAt(i) + 3) & 0xFFFFFF;
+    for (int i = 0; i < id.length; i++) {
+      h = (h * 17 + id.codeUnitAt(i) + 3) & 0xFFFFFF;
+    }
     return 10.0 + (h % 14).toDouble(); // 10–24m offset
   }
 
@@ -1052,7 +1056,7 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
                   _showPinSheet(pin, d, isFullyUnlocked: d <= 20.0);
                 },
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -1916,25 +1920,28 @@ class _PokemonGoMapState extends ConsumerState<PokemonGoMap>
       ),
     );
     if (confirmed != true) return;
+
+    // Capture navigator and messenger before async work to avoid context-use warnings
+    final navigator = Navigator.of(ctx);
+    final messenger = ScaffoldMessenger.of(context);
+
     try {
-      Navigator.pop(ctx); // close pin sheet
+      navigator.pop(); // close pin sheet
       await ref.read(apiClientProvider).deletePin(
         pin.id,
         userLat: _userPosition!.latitude,
         userLon: _userPosition!.longitude,
       );
       ref.invalidate(discoveryProvider);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pin deleted'), backgroundColor: Colors.green),
-        );
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Pin deleted'), backgroundColor: Colors.green),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
@@ -2088,6 +2095,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
 
   Future<void> _handleLike() async {
     if (_likeLoading) return;
+    final messenger = ScaffoldMessenger.of(widget.mapContext);
     final wasLiked = _isLiked;
     final prevCount = _likeCount;
     setState(() {
@@ -2103,7 +2111,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
     } catch (e) {
       if (mounted) {
         setState(() { _isLiked = wasLiked; _likeCount = prevCount; });
-        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Like failed: ${_err(e)}'), backgroundColor: Colors.red),
         );
       }
@@ -2114,6 +2122,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
 
   Future<void> _handleHide() async {
     if (_hideLoading) return;
+    final messenger = ScaffoldMessenger.of(widget.mapContext);
     final wasHidden = _isHidden;
     setState(() { _hideLoading = true; _isHidden = !wasHidden; });
     try {
@@ -2123,7 +2132,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
     } catch (e) {
       if (mounted) {
         setState(() => _isHidden = wasHidden);
-        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Hide failed: ${_err(e)}'), backgroundColor: Colors.red),
         );
       }
@@ -2134,6 +2143,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
 
   Future<void> _handleReport() async {
     if (_reportLoading) return;
+    final messenger = ScaffoldMessenger.of(widget.mapContext);
     final wasReported = _isReported;
     setState(() { _reportLoading = true; _isReported = !wasReported; });
     try {
@@ -2143,7 +2153,7 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
     } catch (e) {
       if (mounted) {
         setState(() => _isReported = wasReported);
-        ScaffoldMessenger.of(widget.mapContext).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Report failed: ${_err(e)}'), backgroundColor: Colors.red),
         );
       }

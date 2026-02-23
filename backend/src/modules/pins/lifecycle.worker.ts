@@ -9,6 +9,29 @@ const EXTENSION_HOURS = 24;           // +24 hours per extension
 const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
 
 /**
+ * Ensure the pins_details_length constraint is the relaxed version (<= 2000).
+ * Called once at startup and at the top of every lifecycle run so that even
+ * if Render somehow still has the old strict constraint (300-500 chars) from
+ * a previous deploy, it gets replaced before any UPDATE touches the table.
+ */
+export async function repairDetailsConstraint(): Promise<void> {
+    try {
+        await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_details_length`);
+        await pool.query(`
+            ALTER TABLE pins ADD CONSTRAINT pins_details_length
+                CHECK (
+                    details IS NULL
+                    OR char_length(details) = 0
+                    OR char_length(details) <= 2000
+                ) NOT VALID
+        `);
+    } catch (err) {
+        // Log but never crash — a missing/wrong constraint is not fatal for startup
+        console.warn('⚠️  repairDetailsConstraint warning:', err);
+    }
+}
+
+/**
  * Pin Lifecycle Worker
  * 
  * Runs every 60 seconds and enforces:
@@ -35,68 +58,83 @@ export function startLifecycleWorker(): void {
 }
 
 async function processLifecycle(): Promise<void> {
+    // Always fix the details constraint first so old strict rules never
+    // block our UPDATE statements (PostgreSQL re-validates ALL constraints
+    // on a row even when only expires_at / updated_at changes).
+    await repairDetailsConstraint();
+
     const client = await pool.connect();
 
     try {
         // ===== STEP 1: Extend life for well-liked pins =====
-        // Pins with >= 3 likes that haven't been extended yet
-        const extendResult = await client.query(`
-            UPDATE pins 
-            SET 
-                expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
-                life_extended_count = life_extended_count + 1,
-                updated_at = NOW()
-            WHERE is_deleted = FALSE 
-                AND expires_at > NOW()
-                AND like_count >= $1
-                AND life_extended_count < FLOOR(like_count::float / $1)
-            RETURNING id, title, life_extended_count, expires_at
-        `, [LIKE_THRESHOLD]);
+        try {
+            const extendResult = await client.query(`
+                UPDATE pins 
+                SET 
+                    expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
+                    life_extended_count = life_extended_count + 1,
+                    updated_at = NOW()
+                WHERE is_deleted = FALSE 
+                    AND expires_at > NOW()
+                    AND like_count >= $1
+                    AND life_extended_count < FLOOR(like_count::float / $1)
+                RETURNING id, title, life_extended_count, expires_at
+            `, [LIKE_THRESHOLD]);
 
-        if (extendResult.rows.length > 0) {
-            console.log(`✅ Extended life for ${extendResult.rows.length} pins:`);
-            for (const pin of extendResult.rows) {
-                console.log(`   📌 "${pin.title}" → extended ${pin.life_extended_count}x, expires: ${pin.expires_at}`);
+            if (extendResult.rows.length > 0) {
+                console.log(`✅ Extended life for ${extendResult.rows.length} pins:`);
+                for (const pin of extendResult.rows) {
+                    console.log(`   📌 "${pin.title}" → extended ${pin.life_extended_count}x, expires: ${pin.expires_at}`);
+                }
             }
+        } catch (err) {
+            console.error('❌ Lifecycle STEP 1 (extend) failed:', err);
         }
 
         // ===== STEP 2: Delete heavily-disliked pins =====
-        const deleteResult = await client.query(`
-            UPDATE pins 
-            SET is_deleted = TRUE, updated_at = NOW()
-            WHERE is_deleted = FALSE 
-                AND dislike_count >= $1
-            RETURNING id, title, 
-                ST_Y(location::geometry) as lat,
-                ST_X(location::geometry) as lon
-        `, [DISLIKE_THRESHOLD]);
+        try {
+            const deleteResult = await client.query(`
+                UPDATE pins 
+                SET is_deleted = TRUE, updated_at = NOW()
+                WHERE is_deleted = FALSE 
+                    AND dislike_count >= $1
+                RETURNING id, title, 
+                    ST_Y(location::geometry) as lat,
+                    ST_X(location::geometry) as lon
+            `, [DISLIKE_THRESHOLD]);
 
-        if (deleteResult.rows.length > 0) {
-            console.log(`🗑️  Deleted ${deleteResult.rows.length} disliked pins:`);
-            for (const pin of deleteResult.rows) {
-                console.log(`   ❌ "${pin.title}"`);
-                // Remove from Redis geohash index
-                await removeFromRedis(pin.lat, pin.lon, pin.id);
+            if (deleteResult.rows.length > 0) {
+                console.log(`🗑️  Deleted ${deleteResult.rows.length} disliked pins:`);
+                for (const pin of deleteResult.rows) {
+                    console.log(`   ❌ "${pin.title}"`);
+                    await removeFromRedis(pin.lat, pin.lon, pin.id);
+                }
             }
+        } catch (err) {
+            console.error('❌ Lifecycle STEP 2 (delete disliked) failed:', err);
         }
 
         // ===== STEP 3: Cleanup expired pins from Redis =====
-        const expiredResult = await client.query(`
-            UPDATE pins 
-            SET is_deleted = TRUE, updated_at = NOW()
-            WHERE is_deleted = FALSE 
-                AND expires_at <= NOW()
-            RETURNING id, title,
-                ST_Y(location::geometry) as lat,
-                ST_X(location::geometry) as lon
-        `);
+        try {
+            const expiredResult = await client.query(`
+                UPDATE pins 
+                SET is_deleted = TRUE, updated_at = NOW()
+                WHERE is_deleted = FALSE 
+                    AND expires_at <= NOW()
+                RETURNING id, title,
+                    ST_Y(location::geometry) as lat,
+                    ST_X(location::geometry) as lon
+            `);
 
-        if (expiredResult.rows.length > 0) {
-            console.log(`⏰ Expired ${expiredResult.rows.length} pins:`);
-            for (const pin of expiredResult.rows) {
-                console.log(`   ⌛ "${pin.title}"`);
-                await removeFromRedis(pin.lat, pin.lon, pin.id);
+            if (expiredResult.rows.length > 0) {
+                console.log(`⏰ Expired ${expiredResult.rows.length} pins:`);
+                for (const pin of expiredResult.rows) {
+                    console.log(`   ⌛ "${pin.title}"`);
+                    await removeFromRedis(pin.lat, pin.lon, pin.id);
+                }
             }
+        } catch (err) {
+            console.error('❌ Lifecycle STEP 3 (expire) failed:', err);
         }
     } finally {
         client.release();

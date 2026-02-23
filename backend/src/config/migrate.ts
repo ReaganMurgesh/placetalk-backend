@@ -233,17 +233,18 @@ export async function runMigrations() {
             EXCEPTION WHEN duplicate_object THEN NULL;
             END $$
         `);
+        // Always drop the old details constraint then recreate it with the
+        // relaxed rule. Two separate queries so there is no ambiguity about
+        // which exception handler fires — critical for Render cold-start safety.
+        await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_details_length`);
         await pool.query(`
-            DO $$ BEGIN
-                ALTER TABLE pins ADD CONSTRAINT pins_details_length
-                    CHECK (
-                        details IS NULL
-                        OR char_length(details) = 0
-                        OR char_length(details) BETWEEN 300 AND 500
-                    )
-                    NOT VALID;
-            EXCEPTION WHEN duplicate_object THEN NULL;
-            END $$
+            ALTER TABLE pins ADD CONSTRAINT pins_details_length
+                CHECK (
+                    details IS NULL
+                    OR char_length(details) = 0
+                    OR char_length(details) <= 2000
+                )
+                NOT VALID
         `);
         console.log('✅ pins text CHECK constraints OK');
 

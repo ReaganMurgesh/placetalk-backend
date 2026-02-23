@@ -242,12 +242,12 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             ],
           ),
         );
-        
-        Navigator.pop(context, true);
+
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
-      if (mounted) {
-        String msg;
+      String msg;
         if (e is DioException) {
           final data = e.response?.data;
           if (data is Map) {
@@ -259,6 +259,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
           msg = e.toString();
         }
         final isQuota = msg.contains('429') || msg.toLowerCase().contains('daily limit') || msg.toLowerCase().contains('per day');
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(isQuota
@@ -268,7 +269,6 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             duration: const Duration(seconds: 5),
           ),
         );
-      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -376,9 +376,9 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Text(
+                      child: const Text(
                         'Tap map to adjust (max 5m from GPS 🔵)',
-                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                        style: TextStyle(color: Colors.white, fontSize: 11),
                       ),
                     ),
                   ),
@@ -710,7 +710,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                   subtitle: const Text('Enable Q&A comment section for this pin'),
                   value: _chatEnabled,
                   onChanged: (v) => setState(() => _chatEnabled = v),
-                  activeColor: const Color(0xFFFF9800),
+                  activeThumbColor: const Color(0xFFFF9800),
                 ),
               ),
               const SizedBox(height: 12),
