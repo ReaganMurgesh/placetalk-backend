@@ -151,13 +151,14 @@ export async function setupRoutes(fastify: FastifyInstance) {
             steps.push({ step: 'add_relaxed_directions_constraint', status: 'error', detail: err.message });
         }
 
-        // ── Step 6: truncate details of any pin whose details exceed 2000 chars
-        //    (belt-and-suspenders: satisfies old or new constraint)             
+        // ── Step 6: normalize details on any pin that would violate any constraint version.
+        //    Old constraint: BETWEEN 300 AND 500 → truncate to 499 (satisfies both old and new).
+        //    New constraint: <= 2000 → also satisfied by 499.
         try {
             const truncated = await pool.query(`
                 UPDATE pins
-                SET details = LEFT(details, 2000), updated_at = NOW()
-                WHERE char_length(details) > 2000
+                SET details = LEFT(details, 499), updated_at = NOW()
+                WHERE char_length(details) > 500
                 RETURNING id, title, char_length(details) AS new_len
             `);
             steps.push({ step: 'truncate_oversized_details', status: 'ok', detail: `${truncated.rowCount} rows updated` });

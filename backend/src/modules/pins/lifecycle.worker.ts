@@ -83,7 +83,14 @@ async function processLifecycle(): Promise<void> {
                 SET 
                     expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
                     life_extended_count = life_extended_count + 1,
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    -- Clamp details to satisfy any version of the check constraint
+                    -- (old: BETWEEN 300-500, new: <= 2000).  500 satisfies both.
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END
                 WHERE is_deleted = FALSE 
                     AND expires_at > NOW()
                     AND like_count >= $1
@@ -105,7 +112,12 @@ async function processLifecycle(): Promise<void> {
         try {
             const deleteResult = await client.query(`
                 UPDATE pins 
-                SET is_deleted = TRUE, updated_at = NOW()
+                SET is_deleted = TRUE, updated_at = NOW(),
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END
                 WHERE is_deleted = FALSE 
                     AND dislike_count >= $1
                 RETURNING id, title, 
@@ -128,7 +140,12 @@ async function processLifecycle(): Promise<void> {
         try {
             const expiredResult = await client.query(`
                 UPDATE pins 
-                SET is_deleted = TRUE, updated_at = NOW()
+                SET is_deleted = TRUE, updated_at = NOW(),
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END
                 WHERE is_deleted = FALSE 
                     AND expires_at <= NOW()
                 RETURNING id, title,
