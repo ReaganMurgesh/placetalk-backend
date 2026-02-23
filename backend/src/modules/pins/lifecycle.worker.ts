@@ -34,9 +34,10 @@ export async function repairDetailsConstraint(): Promise<void> {
                 CHECK (char_length(directions) BETWEEN 5 AND 500)
                 NOT VALID
         `);
-    } catch (err) {
-        // Log but never crash — constraints are not fatal
-        console.warn('⚠️  repairDetailsConstraint warning:', err);
+    } catch (err: any) {
+        // Log explicitly — if this keeps firing, check DB user permissions
+        console.error('🚨 repairDetailsConstraint FAILED (constraints may still be strict):', err?.message ?? err);
+        console.error('   Full error:', JSON.stringify({ code: err?.code, detail: err?.detail, hint: err?.hint }));
     }
 }
 
@@ -82,7 +83,17 @@ async function processLifecycle(): Promise<void> {
                 SET 
                     expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
                     life_extended_count = life_extended_count + 1,
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END,
+                    directions = CASE
+                        WHEN directions IS NOT NULL AND char_length(directions) > 500
+                            THEN LEFT(directions, 500)
+                        ELSE directions
+                    END
                 WHERE is_deleted = FALSE 
                     AND expires_at > NOW()
                     AND like_count >= $1
@@ -104,7 +115,17 @@ async function processLifecycle(): Promise<void> {
         try {
             const deleteResult = await client.query(`
                 UPDATE pins 
-                SET is_deleted = TRUE, updated_at = NOW()
+                SET is_deleted = TRUE, updated_at = NOW(),
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END,
+                    directions = CASE
+                        WHEN directions IS NOT NULL AND char_length(directions) > 500
+                            THEN LEFT(directions, 500)
+                        ELSE directions
+                    END
                 WHERE is_deleted = FALSE 
                     AND dislike_count >= $1
                 RETURNING id, title, 
@@ -127,7 +148,17 @@ async function processLifecycle(): Promise<void> {
         try {
             const expiredResult = await client.query(`
                 UPDATE pins 
-                SET is_deleted = TRUE, updated_at = NOW()
+                SET is_deleted = TRUE, updated_at = NOW(),
+                    details = CASE
+                        WHEN details IS NOT NULL AND char_length(details) > 500
+                            THEN LEFT(details, 500)
+                        ELSE details
+                    END,
+                    directions = CASE
+                        WHEN directions IS NOT NULL AND char_length(directions) > 500
+                            THEN LEFT(directions, 500)
+                        ELSE directions
+                    END
                 WHERE is_deleted = FALSE 
                     AND expires_at <= NOW()
                 RETURNING id, title,
