@@ -102,13 +102,11 @@ export class DiscoveryService {
       LEFT JOIN user_pin_interactions upi
         ON upi.pin_id = p.id AND upi.user_id = $5
       WHERE p.is_deleted = FALSE
-        ${IS_TEST_MODE
-            ? '-- IS_TEST_MODE=true: all non-deleted pins shown regardless of expiry'
-            : `AND (
-          p.expires_at IS NULL          -- Community pins never expire
-          OR p.expires_at > NOW()        -- Normal pins still active
-        )`
-        }
+        AND (
+          ${IS_TEST_MODE
+            ? 'TRUE  -- IS_TEST_MODE: expiry filter bypassed for field testing'
+            : `p.expires_at IS NULL OR p.expires_at > NOW()`}
+        )
         AND (
           p.visible_from IS NULL 
           OR p.visible_to IS NULL 

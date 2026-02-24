@@ -55,10 +55,10 @@ export async function repairDetailsConstraint(): Promise<void> {
  * Pin Lifecycle Worker
  * 
  * Runs every 60 seconds and enforces:
- * 1. IF likes >= 3 AND not yet extended → expires_at += 24h
- * 2. IF likes >= 6 AND extended once   → expires_at += 24h (second tier)
+ * 1. IF likes >= 3 AND not yet extended → expires_at += 7 days (LEAST with created_at + 1 year cap)
+ * 2. IF likes >= 6 AND extended once   → expires_at += 7 days (second tier, same cap)
  * 3. IF dislikes >= 3                  → mark deleted
- * 4. IF now > expires_at               → cleanup from Redis
+ * 4. IF now > expires_at               → soft-delete + cleanup from Redis
  */
 export function startLifecycleWorker(): void {
     console.log('♻️  Lifecycle Worker started (interval: 60s)');
