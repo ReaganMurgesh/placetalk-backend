@@ -5,7 +5,7 @@ import { encodeGeohash } from '../../utils/geohash.js';
 const LIFECYCLE_INTERVAL_MS = 60_000; // Check every 60 seconds
 const LIKE_THRESHOLD = 3;             // 3 likes → extend life
 const DISLIKE_THRESHOLD = 3;          // 3 dislikes → delete
-const EXTENSION_HOURS = 24;           // +24 hours per extension
+const EXTENSION_HOURS = 168;          // +7 days (168 hours) per like extension
 const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
 
 /**
@@ -91,7 +91,11 @@ async function processLifecycle(): Promise<void> {
             const extendResult = await client.query(`
                 UPDATE pins 
                 SET 
-                    expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
+                    -- Hard cap: pin can never exceed 1 year from its original created_at
+                    expires_at = LEAST(
+                        expires_at + INTERVAL '${EXTENSION_HOURS} hours',
+                        created_at + INTERVAL '1 year'
+                    ),
                     life_extended_count = life_extended_count + 1,
                     updated_at = NOW(),
                     title = CASE

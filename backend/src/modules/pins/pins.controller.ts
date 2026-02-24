@@ -14,7 +14,7 @@ export async function pinsRoutes(fastify: FastifyInstance) {
         { preHandler: requireAuth },
         async (request: any, reply) => {
             try {
-                const { title, directions, details, lat, lon, type, pinCategory, attributeId, visibleFrom, visibleTo, externalLink, chatEnabled, isPrivate, communityId } =
+                const { title, directions, details, lat, lon, type, pinCategory, attributeId, visibleFrom, visibleTo, externalLink, chatEnabled, isPrivate, communityId, expiresAt } =
                     request.body;
 
                 if (!title || !directions || lat === undefined || lon === undefined) {
@@ -54,6 +54,7 @@ export async function pinsRoutes(fastify: FastifyInstance) {
                         chatEnabled: chatEnabled ?? false,
                         isPrivate: isPrivate ?? false,
                         communityId: communityId ?? undefined,
+                        expiresAt: expiresAt ?? undefined,
                     },
                     userId
                 );

@@ -4,6 +4,14 @@ import type { DiscoveredPin, DiscoveryResponse } from './discovery.types.js';
 const DISCOVERY_RADIUS_METERS = parseInt(process.env.DISCOVERY_RADIUS_METERS || '50');
 const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
 
+/**
+ * TEST MODE — set IS_TEST_MODE=false in Render env vars when you go live.
+ * When true:  fetches ALL non-deleted pins regardless of expires_at
+ *             (keeps the map populated during field testing).
+ * When false: only fetches pins where expires_at > NOW().
+ */
+const IS_TEST_MODE = process.env.IS_TEST_MODE !== 'false'; // default ON
+
 export class DiscoveryService {
     /**
      * Simplified Discovery Algorithm (PostgreSQL-only, No Redis)
@@ -94,10 +102,13 @@ export class DiscoveryService {
       LEFT JOIN user_pin_interactions upi
         ON upi.pin_id = p.id AND upi.user_id = $5
       WHERE p.is_deleted = FALSE
-        AND (
+        ${IS_TEST_MODE
+            ? '-- IS_TEST_MODE=true: all non-deleted pins shown regardless of expiry'
+            : `AND (
           p.expires_at IS NULL          -- Community pins never expire
           OR p.expires_at > NOW()        -- Normal pins still active
-        )
+        )`
+        }
         AND (
           p.visible_from IS NULL 
           OR p.visible_to IS NULL 

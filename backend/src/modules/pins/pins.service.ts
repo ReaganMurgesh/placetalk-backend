@@ -93,15 +93,19 @@ export class PinsService {
 
         // Step 2: Calculate expiration
         // Community pins: null (no expiry, spec says "permanent")
-        // Normal pins: expires_at = NOW() + 1 year (spec 2.1 default)
-        //   If data.expiresAt is supplied, use it instead (future UI timer dial)
+        // Normal pins: use client-chosen expiresAt (1d / 1w / 1m) when provided,
+        //              otherwise fall back to DEFAULT_PIN_TTL_HOURS (1 year).
+        // Hard cap enforced by the lifecycle worker: LEAST(extends, created_at + 1 year).
         let expiresAt: Date;
 
         if (data.pinCategory === 'community') {
             // Community pins: 100 years (essentially permanent)
             expiresAt = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+        } else if (data.expiresAt) {
+            // Mobile sent a computed timestamp based on the lifespan selector
+            expiresAt = new Date(data.expiresAt);
         } else {
-            // Normal pins: default 1 year; DEFAULT_PIN_TTL_HOURS is now 8760 (1 year)
+            // Normal pins: default 1 year fallback
             expiresAt = new Date(Date.now() + DEFAULT_PIN_TTL_HOURS * 60 * 60 * 1000);
         }
 

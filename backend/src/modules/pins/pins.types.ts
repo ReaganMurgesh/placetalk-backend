@@ -27,6 +27,7 @@ export interface CreatePinDTO {
     chatEnabled?: boolean;
     isPrivate?: boolean;  // spec 2.3: Paid/restricted visibility
     communityId?: string; // spec 3: link to a specific community
+    expiresAt?: string;   // ISO-8601 from mobile timer selection (1d / 1w / 1m)
 }
 
 export interface UpdatePinDTO {
