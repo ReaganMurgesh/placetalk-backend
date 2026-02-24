@@ -101,11 +101,20 @@ export async function runMigrations() {
                   AND a.user_id = b.user_id
                   AND a.pin_id = b.pin_id
             `);
-            // Add the correct unique constraint (using DO block to avoid error if exists)
+            // Add the correct unique constraint only if it doesn't already exist.
+            // Use IF NOT EXISTS pg_constraint check — avoids any exception being thrown,
+            // which is safer than EXCEPTION WHEN duplicate_object across Postgres versions.
             await pool.query(`
-                DO $$ BEGIN
-                    ALTER TABLE interactions ADD CONSTRAINT interactions_user_pin_unique UNIQUE (user_id, pin_id);
-                EXCEPTION WHEN duplicate_object THEN NULL;
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'interactions_user_pin_unique'
+                          AND conrelid = 'interactions'::regclass
+                    ) THEN
+                        ALTER TABLE interactions
+                            ADD CONSTRAINT interactions_user_pin_unique UNIQUE (user_id, pin_id);
+                    END IF;
                 END $$
             `);
             console.log('✅ interactions UNIQUE(user_id, pin_id) constraint OK');
