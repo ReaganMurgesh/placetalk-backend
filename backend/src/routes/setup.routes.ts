@@ -287,4 +287,4 @@ export async function setupRoutes(fastify: FastifyInstance) {
         const anyError = steps.some(s => s.status === 'error');
         return reply.code(anyError ? 207 : 200).send({ success: !anyError, steps });
     });
-
+}
