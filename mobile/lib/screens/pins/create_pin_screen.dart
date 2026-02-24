@@ -38,6 +38,9 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
   bool _followsGuidelines = false;
   bool _noPrivateProperty = false;
 
+  // Self-destruct timer selection: '1d' = 1 Day, '1w' = 1 Week, '1m' = 1 Month
+  String _selectedLifespan = '1w';
+
   // --- Phase 1a: GPS fine-tuning ---
   // User-adjusted pin position from the fine-tune map (overrides raw GPS on create)
   LatLng? _fineTunedLatLng;
@@ -72,6 +75,25 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
            _followsGuidelines && 
            _noPrivateProperty &&
            _currentPosition != null;
+  }
+
+  /// Human-readable label for the selected lifespan chip.
+  String get _lifespanLabel {
+    switch (_selectedLifespan) {
+      case '1d': return '1 Day';
+      case '1m': return '1 Month';
+      default:   return '1 Week';
+    }
+  }
+
+  /// ISO-8601 expiry timestamp computed from the selected lifespan.
+  String get _expiresAtIso {
+    final now = DateTime.now();
+    switch (_selectedLifespan) {
+      case '1d': return now.add(const Duration(days: 1)).toIso8601String();
+      case '1m': return now.add(const Duration(days: 30)).toIso8601String();
+      default:   return now.add(const Duration(days: 7)).toIso8601String();
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -162,6 +184,8 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
             : _externalLinkController.text.trim(),
         chatEnabled: _pinCategory == 'community' ? _chatEnabled : false,
         isPrivate: _isPrivate,
+        // Expiry chosen by user via timer chips; null for community pins (permanent)
+        expiresAt: _pinCategory == 'community' ? null : _expiresAtIso,
       );
 
       // For community pins: auto-create/join the community chat room
@@ -209,7 +233,7 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
                     Text(
                       _pinCategory == 'community' 
                           ? '🏛️ Community pin created! Others can discover this forever.'
-                          : '📍 Pin created! Others can discover this for 1 year.',
+                          : '📍 Pin active for $_lifespanLabel. Each ❤️ like adds +7 days (max 1 year).',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey[600]),
                     ),
@@ -733,6 +757,61 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               maxLength: 200,
             ),
 
+            // ── Self-destruct Timer ─────────────────────────────────────
+            if (_pinCategory != 'community') ...[  
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF6C63FF).withOpacity(0.25)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.timer_outlined, size: 18, color: Color(0xFF6C63FF)),
+                        SizedBox(width: 6),
+                        Text('Pin Lifespan', style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14,
+                          color: Color(0xFF3F3D9B),
+                        )),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Each ❤️ like adds +7 days • max 1 year from creation',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _LifespanChip(
+                          label: '1 Day',
+                          selected: _selectedLifespan == '1d',
+                          onTap: () => setState(() => _selectedLifespan = '1d'),
+                        ),
+                        const SizedBox(width: 8),
+                        _LifespanChip(
+                          label: '1 Week',
+                          selected: _selectedLifespan == '1w',
+                          onTap: () => setState(() => _selectedLifespan = '1w'),
+                        ),
+                        const SizedBox(width: 8),
+                        _LifespanChip(
+                          label: '1 Month',
+                          selected: _selectedLifespan == '1m',
+                          onTap: () => setState(() => _selectedLifespan = '1m'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 24),
 
             // 🏗️ PUBLIC SAFETY CHECKLIST
@@ -878,11 +957,65 @@ class _CreatePinScreenState extends ConsumerState<CreatePinScreen> {
               Text(
                 _pinCategory == 'community'
                     ? '🏛️ Community pin — permanent, links to a community chat room'
-                    : 'Pin visible to users within 50m for 1 year',
+                    : '⏱️ Active for $_lifespanLabel • ❤️ like → +7 days • 1-year max',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                 textAlign: TextAlign.center,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Lifespan selection chip ──────────────────────────────────────────────────
+class _LifespanChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _LifespanChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFF6C63FF)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF6C63FF)
+                  : Colors.grey.shade300,
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: selected
+                ? [BoxShadow(
+                    color: const Color(0xFF6C63FF).withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )]
+                : [],
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? Colors.white : Colors.grey.shade700,
+            ),
           ),
         ),
       ),

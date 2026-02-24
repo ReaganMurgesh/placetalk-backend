@@ -187,6 +187,7 @@ class ApiClient {
     String? externalLink,
     bool chatEnabled = false,
     bool isPrivate = false,
+    String? expiresAt, // ISO-8601; null → backend default (1 year)
   }) async {
     final response = await _dio.post(
       ApiConfig.pinsCreate,
@@ -204,6 +205,7 @@ class ApiClient {
         'externalLink': externalLink,
         'chatEnabled': chatEnabled,
         'isPrivate': isPrivate,
+        if (expiresAt != null) 'expiresAt': expiresAt,
       },
     );
     
