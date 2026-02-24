@@ -124,12 +124,13 @@ export async function setupRoutes(fastify: FastifyInstance) {
                 steps.push({ step: 'relax_details_constraint', status: 'error', detail: err.message });
             }
 
-            // Drop and recreate directions constraint (relaxed)
+            // Drop and recreate directions constraint — upper bound only (≤ 500).
+            // A lower bound caused UPDATE failures on old rows with short directions.
             try {
                 await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_directions_length`);
                 await pool.query(`
                     ALTER TABLE pins ADD CONSTRAINT pins_directions_length
-                        CHECK (char_length(directions) BETWEEN 5 AND 500)
+                        CHECK (char_length(directions) <= 500)
                         NOT VALID
                 `);
                 steps.push({ step: 'relax_directions_constraint', status: 'ok' });

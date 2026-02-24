@@ -27,11 +27,13 @@ export async function repairDetailsConstraint(): Promise<void> {
                 ) NOT VALID
         `);
 
-        // Fix directions constraint (old rule: 50–100 chars → new: 5–500)
+        // Fix directions constraint — only enforce upper bound (≤ 500).
+        // A lower bound caused UPDATE failures when old rows had short directions.
+        // The mobile UI already enforces a minimum at input time.
         await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_directions_length`);
         await pool.query(`
             ALTER TABLE pins ADD CONSTRAINT pins_directions_length
-                CHECK (char_length(directions) BETWEEN 5 AND 500)
+                CHECK (char_length(directions) <= 500)
                 NOT VALID
         `);
     } catch (err: any) {

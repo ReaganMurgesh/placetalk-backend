@@ -267,7 +267,7 @@ export async function runMigrations() {
         await pool.query(`
             DO $$ BEGIN
                 ALTER TABLE pins ADD CONSTRAINT pins_directions_length
-                    CHECK (char_length(directions) BETWEEN 5 AND 500)
+                    CHECK (char_length(directions) <= 500)
                     NOT VALID;
             EXCEPTION WHEN duplicate_object THEN NULL;
             END $$
