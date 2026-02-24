@@ -170,4 +170,82 @@ export async function setupRoutes(fastify: FastifyInstance) {
             return reply.code(anyError ? 207 : 200).send({ success: !anyError, steps });
         });
 
-    }
+    /**
+     * Fix the interactions table column name mismatch.
+     * The original schema created the column as "action" but the service
+     * queries use "interaction_type".  This endpoint renames it and verifies.
+     * Call via:  POST /setup/fix-interactions
+     */
+    fastify.post('/fix-interactions', async (request, reply) => {
+        const steps: Array<{ step: string; status: string; detail?: string }> = [];
+
+        // 1. Check what columns exist
+        try {
+            const cols = await pool.query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'interactions'
+                ORDER BY column_name
+            `);
+            steps.push({ step: 'read_columns', status: 'ok', detail: JSON.stringify(cols.rows.map((r: any) => r.column_name)) });
+        } catch (err: any) {
+            steps.push({ step: 'read_columns', status: 'error', detail: err.message });
+        }
+
+        // 2. Rename action → interaction_type if needed
+        try {
+            const actionExists = await pool.query(`
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'interactions' AND column_name = 'action'
+            `);
+            const itExists = await pool.query(`
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'interactions' AND column_name = 'interaction_type'
+            `);
+
+            if (actionExists.rows.length > 0 && itExists.rows.length === 0) {
+                await pool.query(`ALTER TABLE interactions RENAME COLUMN action TO interaction_type`);
+                steps.push({ step: 'rename_action_to_interaction_type', status: 'ok', detail: 'renamed' });
+            } else if (itExists.rows.length > 0) {
+                steps.push({ step: 'rename_action_to_interaction_type', status: 'ok', detail: 'already interaction_type — no rename needed' });
+            } else {
+                steps.push({ step: 'rename_action_to_interaction_type', status: 'error', detail: 'neither action nor interaction_type column found — table may be missing' });
+            }
+        } catch (err: any) {
+            steps.push({ step: 'rename_action_to_interaction_type', status: 'error', detail: err.message });
+        }
+
+        // 3. Drop old CHECK constraint on action column (may have stale reference)
+        try {
+            const constraints = await pool.query(`
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'interactions'::regclass AND contype = 'c'
+            `);
+            steps.push({ step: 'list_check_constraints', status: 'ok', detail: JSON.stringify(constraints.rows.map((r: any) => r.conname)) });
+        } catch (err: any) {
+            steps.push({ step: 'list_check_constraints', status: 'error', detail: err.message });
+        }
+
+        // 4. Test an INSERT and ROLLBACK to verify the column works
+        try {
+            await pool.query('BEGIN');
+            await pool.query(`
+                INSERT INTO interactions (user_id, pin_id, interaction_type)
+                VALUES (
+                    (SELECT id FROM users LIMIT 1),
+                    (SELECT id FROM pins WHERE is_deleted = FALSE LIMIT 1),
+                    'like'
+                )
+                ON CONFLICT DO NOTHING
+            `);
+            await pool.query('ROLLBACK');
+            steps.push({ step: 'test_insert_interaction_type', status: 'ok', detail: 'INSERT using interaction_type succeeded (rolled back)' });
+        } catch (err: any) {
+            await pool.query('ROLLBACK').catch(() => {});
+            steps.push({ step: 'test_insert_interaction_type', status: 'error', detail: err.message });
+        }
+
+        const anyError = steps.some(s => s.status === 'error');
+        return reply.code(anyError ? 207 : 200).send({ success: !anyError, steps });
+    });
+
