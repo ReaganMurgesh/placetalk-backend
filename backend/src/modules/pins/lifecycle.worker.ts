@@ -16,6 +16,14 @@ const GEOHASH_PRECISION = parseInt(process.env.GEOHASH_PRECISION || '7');
  */
 export async function repairDetailsConstraint(): Promise<void> {
     try {
+        // Fix title constraint — only enforce upper bound (≤ 10 chars for display, NOT VALID).
+        await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_title_length`);
+        await pool.query(`
+            ALTER TABLE pins ADD CONSTRAINT pins_title_length
+                CHECK (char_length(title) <= 10)
+                NOT VALID
+        `);
+
         // Fix details constraint (old rule: 300–500 chars → new: any length up to 2000)
         await pool.query(`ALTER TABLE pins DROP CONSTRAINT IF EXISTS pins_details_length`);
         await pool.query(`
@@ -86,6 +94,10 @@ async function processLifecycle(): Promise<void> {
                     expires_at = expires_at + INTERVAL '${EXTENSION_HOURS} hours',
                     life_extended_count = life_extended_count + 1,
                     updated_at = NOW(),
+                    title = CASE
+                        WHEN char_length(title) > 10 THEN LEFT(title, 10)
+                        ELSE title
+                    END,
                     details = CASE
                         WHEN details IS NOT NULL AND char_length(details) > 500
                             THEN LEFT(details, 500)
@@ -118,6 +130,10 @@ async function processLifecycle(): Promise<void> {
             const deleteResult = await client.query(`
                 UPDATE pins 
                 SET is_deleted = TRUE, updated_at = NOW(),
+                    title = CASE
+                        WHEN char_length(title) > 10 THEN LEFT(title, 10)
+                        ELSE title
+                    END,
                     details = CASE
                         WHEN details IS NOT NULL AND char_length(details) > 500
                             THEN LEFT(details, 500)
@@ -151,6 +167,10 @@ async function processLifecycle(): Promise<void> {
             const expiredResult = await client.query(`
                 UPDATE pins 
                 SET is_deleted = TRUE, updated_at = NOW(),
+                    title = CASE
+                        WHEN char_length(title) > 10 THEN LEFT(title, 10)
+                        ELSE title
+                    END,
                     details = CASE
                         WHEN details IS NOT NULL AND char_length(details) > 500
                             THEN LEFT(details, 500)
