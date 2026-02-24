@@ -2108,6 +2108,21 @@ class _PinActionRowState extends ConsumerState<_PinActionRow> {
       ref.invalidate(diaryStatsProvider);
       ref.invalidate(diaryPassiveLogProvider);
       ref.invalidate(myPinsMetricsProvider);
+      // Sync _likeCount with the authoritative server value stored in the provider
+      final updatedPin = ref.read(discoveryProvider).allPins
+          .where((p) => p.id == widget.pin.id)
+          .firstOrNull;
+      if (updatedPin != null && mounted) {
+        setState(() => _likeCount = updatedPin.likeCount);
+        // If count didn't increase (idempotent — user already liked), show hint
+        if (!wasLiked && updatedPin.likeCount == prevCount) {
+          messenger.showSnackBar(const SnackBar(
+            content: Text('Already liked! 👍'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() { _isLiked = wasLiked; _likeCount = prevCount; });

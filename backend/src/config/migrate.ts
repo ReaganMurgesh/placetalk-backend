@@ -75,6 +75,44 @@ export async function runMigrations() {
             console.log('✅ interactions.interaction_type column OK');
         }
 
+        // 2b. Ensure interactions table has the correct UNIQUE(user_id, pin_id) constraint.
+        //     The old schema (001_initial_schema.sql) used UNIQUE(pin_id, user_id, action) which
+        //     after the rename becomes UNIQUE(pin_id, user_id, interaction_type) — allowing both
+        //     'like' and 'dislike' per user+pin.  We need exactly ONE interaction per user+pin.
+        try {
+            // Find unique constraints on interactions that include interaction_type or action column
+            const oldUniqueConstraints = await pool.query(`
+                SELECT DISTINCT c.conname
+                FROM pg_constraint c
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+                WHERE c.conrelid = 'interactions'::regclass
+                  AND c.contype = 'u'
+                  AND a.attname IN ('action', 'interaction_type')
+            `);
+            for (const row of oldUniqueConstraints.rows) {
+                await pool.query(`ALTER TABLE interactions DROP CONSTRAINT IF EXISTS "${row.conname}"`);
+                console.log(`✅ Dropped old interactions unique constraint: ${row.conname}`);
+            }
+            // Remove any duplicate user+pin rows (keep the most recent one per user+pin)
+            await pool.query(`
+                DELETE FROM interactions a
+                USING interactions b
+                WHERE a.created_at < b.created_at
+                  AND a.user_id = b.user_id
+                  AND a.pin_id = b.pin_id
+            `);
+            // Add the correct unique constraint (using DO block to avoid error if exists)
+            await pool.query(`
+                DO $$ BEGIN
+                    ALTER TABLE interactions ADD CONSTRAINT interactions_user_pin_unique UNIQUE (user_id, pin_id);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$
+            `);
+            console.log('✅ interactions UNIQUE(user_id, pin_id) constraint OK');
+        } catch (constraintErr: any) {
+            console.warn('⚠️ interactions unique constraint migration warning:', constraintErr?.message);
+        }
+
         // 3. Ensure pins.updated_at column exists
         await pool.query(`ALTER TABLE pins ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 

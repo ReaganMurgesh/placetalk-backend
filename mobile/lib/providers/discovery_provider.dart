@@ -166,7 +166,14 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
   /// Report a pin (backend call — uses /pins/:id/report endpoint)
   Future<void> reportPin(String pinId) async {
     try {
-      await _apiClient.reportPin(pinId);
+      final result = await _apiClient.reportPin(pinId);
+      // Sync local like count with actual server value (report may flip like to dislike)
+      final serverLikeCount = result['likeCount'];
+      if (serverLikeCount is int) {
+        setLikeCountLocally(pinId, serverLikeCount);
+      } else if (serverLikeCount is num) {
+        setLikeCountLocally(pinId, serverLikeCount.toInt());
+      }
     } catch (e) {
       print('Failed to report pin: $e');
       rethrow;
@@ -182,6 +189,20 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
       }).toList(),
       createdPins: state.createdPins.map((p) {
         if (p.id == pinId) return p.copyWith(likeCount: p.likeCount + 1);
+        return p;
+      }).toList(),
+    );
+  }
+
+  /// Sync actual like count from server response (overrides optimistic value)
+  void setLikeCountLocally(String pinId, int likeCount) {
+    state = state.copyWith(
+      discoveredPins: state.discoveredPins.map((p) {
+        if (p.id == pinId) return p.copyWith(likeCount: likeCount);
+        return p;
+      }).toList(),
+      createdPins: state.createdPins.map((p) {
+        if (p.id == pinId) return p.copyWith(likeCount: likeCount);
         return p;
       }).toList(),
     );
@@ -331,16 +352,23 @@ class DiscoveryNotifier extends StateNotifier<DiscoveryState> {
     }).toList();
   }
 
-  /// Like a pin — optimistic local count bump, then API call
+  /// Like a pin — optimistic local count bump, then sync with server
   Future<void> likePin(String pinId) async {
     // Optimistic update: bump count immediately so the UI feels instant
     incrementLikeLocally(pinId);
     try {
-      await _apiClient.likePin(pinId);
-      // Backend confirmed — no need to re-fetch; local optimistic state is correct
+      final result = await _apiClient.likePin(pinId);
+      // Sync local state with the actual server count (handles idempotent case
+      // where the user already liked — server returns real count, not +1)
+      final serverCount = result['likeCount'];
+      if (serverCount is int) {
+        setLikeCountLocally(pinId, serverCount);
+      } else if (serverCount is num) {
+        setLikeCountLocally(pinId, serverCount.toInt());
+      }
     } catch (e) {
-      // Roll back the optimistic bump if the API call failed for a real reason
-      // (idempotent 400 "already liked" is handled backend-side and returns 200 now)
+      // Roll back the optimistic bump
+      // (re-decrement by reading current state and subtracting)
       print('Failed to like pin: $e');
       rethrow;
     }

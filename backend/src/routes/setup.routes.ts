@@ -218,15 +218,54 @@ export async function setupRoutes(fastify: FastifyInstance) {
         // 3. Drop old CHECK constraint on action column (may have stale reference)
         try {
             const constraints = await pool.query(`
-                SELECT conname FROM pg_constraint
-                WHERE conrelid = 'interactions'::regclass AND contype = 'c'
+                SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint
+                WHERE conrelid = 'interactions'::regclass AND contype IN ('c', 'u')
             `);
-            steps.push({ step: 'list_check_constraints', status: 'ok', detail: JSON.stringify(constraints.rows.map((r: any) => r.conname)) });
+            steps.push({ step: 'list_constraints', status: 'ok', detail: JSON.stringify(constraints.rows) });
         } catch (err: any) {
-            steps.push({ step: 'list_check_constraints', status: 'error', detail: err.message });
+            steps.push({ step: 'list_constraints', status: 'error', detail: err.message });
         }
 
-        // 4. Test an INSERT and ROLLBACK to verify the column works
+        // 4. Fix unique constraint: ensure UNIQUE(user_id, pin_id), not old UNIQUE(pin_id, user_id, action/interaction_type)
+        try {
+            const oldUniques = await pool.query(`
+                SELECT DISTINCT c.conname
+                FROM pg_constraint c
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+                WHERE c.conrelid = 'interactions'::regclass
+                  AND c.contype = 'u'
+                  AND a.attname IN ('action', 'interaction_type')
+            `);
+            const dropped: string[] = [];
+            for (const row of oldUniques.rows) {
+                await pool.query(`ALTER TABLE interactions DROP CONSTRAINT IF EXISTS "${row.conname}"`);
+                dropped.push(row.conname);
+            }
+            // Deduplicate: keep most recent row per user+pin
+            const dupResult = await pool.query(`
+                DELETE FROM interactions a
+                USING interactions b
+                WHERE a.created_at < b.created_at
+                  AND a.user_id = b.user_id
+                  AND a.pin_id = b.pin_id
+            `);
+            // Add correct unique constraint
+            await pool.query(`
+                DO $$ BEGIN
+                    ALTER TABLE interactions ADD CONSTRAINT interactions_user_pin_unique UNIQUE (user_id, pin_id);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$
+            `);
+            steps.push({
+                step: 'fix_unique_constraint',
+                status: 'ok',
+                detail: `dropped: ${JSON.stringify(dropped)}, deduped: ${dupResult.rowCount ?? 0} rows, added UNIQUE(user_id, pin_id)`
+            });
+        } catch (err: any) {
+            steps.push({ step: 'fix_unique_constraint', status: 'error', detail: err.message });
+        }
+
+        // 5. Test an INSERT and ROLLBACK to verify the column works
         try {
             await pool.query('BEGIN');
             await pool.query(`
